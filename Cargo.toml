@@ -1,0 +1,26 @@
+[workspace]
+members         = ["uncore", "copycat", "sanity", "coreba"]
+resolver        = "2"
+
+[workspace.package]
+authors         = ["Christos P. Lamprakos <cplamprakos@proton.me>"]
+edition         = "2021"
+rust-version    = "1.72.0"
+license         = "MIT"
+publish         = false
+version         = "0.1.0"
+
+[profile.release]
+lto             = true
+codegen-units   = 1
+
+[workspace.dependencies]
+indexmap                = {version = "2.0.2", features = ["std", "rayon"]}
+libc                    = "0.2"
+libc-stdhandle          = "0.1"
+once_cell               = "1.18.0"
+ahash                   = "0.8.3"
+anyhow                  = "1.0.75"
+rayon                   = "1.8.0"
+thiserror               = "1.0.50"
+rand                    = "0.8.5"
