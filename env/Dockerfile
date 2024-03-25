@@ -54,4 +54,6 @@ RUN cmake -DCMAKE_BUILD_TYPE=Release && make -j8
 
 #   Clean up mess.
 WORKDIR /home/ideapilot
+RUN phoronix-test-suite install compress-gzip espeak
+
 RUN rm -r build_tools

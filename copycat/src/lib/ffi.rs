@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 // C-reminiscent types.
 pub type size_t     = libc::size_t;
 pub type pthread_t  = libc::pthread_t;
@@ -14,6 +16,7 @@ pub use libc::{
     fputs,
     exit,
     pthread_self,
+    getpid
 };
 
 // Type aliases for the several interposed functions.

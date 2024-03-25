@@ -1,6 +1,7 @@
 use crate::ffi::*;
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, TryLockError, Condvar};
+use std::ptr::{addr_of, addr_of_mut};
 
 use std::hash::BuildHasherDefault;
 use indexmap::IndexMap;
@@ -19,7 +20,7 @@ pub unsafe fn is_app_owned() -> bool {
     static mut INIT_THREAD: pthread_t = 0;
 
     let tid = pthread_self();
-    match &INIT_LOCK {
+    match &*addr_of!(INIT_LOCK) {
         // Existence of the mutex is a signal that the map
         // has not been initialized.
         Some(mtx)   => {
@@ -44,7 +45,7 @@ pub unsafe fn is_app_owned() -> bool {
                             }
                             // The rest of the threads must wait until
                             // initialization is complete.
-                            while let Some(_) = &INIT_LOCK {}
+                            while let Some(_) = &*addr_of!(INIT_LOCK) {}
                         }
                     }
                 }
@@ -292,7 +293,7 @@ impl Request {
         (baby_req, baby_place)
     }
 
-    pub fn new_call(r: ReqType, world: &mut State) -> Self {
+    pub unsafe fn new_call(r: ReqType, world: *mut Lazy<State>) -> Self {
         //! Generates a Request based on real-time data. This
         //! must match the next-expected one, dictated by the
         //! `world` structure.
@@ -300,13 +301,13 @@ impl Request {
         // To be returned if request cannot be created right now,
         // e.g., a `free` for which the address doesn't yet exist.
         let baby = Self { rtype: ReqType::Done, tid: 0 };
-        let (coarse_eq, real_add, traced_add) = r.fine_eq(&world.ner.0.rtype);
+        let (coarse_eq, real_add, traced_add) = r.fine_eq(&(*world).ner.0.rtype);
         // 1st-level check: non-ptr args equality.
         if !coarse_eq { return baby; }
         // 2nd-level check: ptr arguments.
         if traced_add != 0 {
             // NULL ptrs have been traced as zero values.
-            match world.objects.get(&real_add) {
+            match (*world).objects.get(&real_add) {
                 None    => { return baby; },
                 Some(a) => {
                     if *a != traced_add { return baby; }
@@ -320,24 +321,22 @@ impl Request {
         //
         // If the TID appears for the first time, it by definition matches
         // the one expected (yes, there is a deadlock hazard here).
-        unsafe {
-            let real_tid = pthread_self() as usize;
-            match world.threads.get(&real_tid) {
-                None    => { 
-                    let fake_tid = world.ner.0.tid;
-                    steal_ownership();
-                    world.threads.insert(real_tid, fake_tid);
-                    return_ownership();
-                }
-                Some(fake_tid)  => {
-                    if *fake_tid != world.ner.0.tid { return baby; }
-                }
-            };
+        let real_tid = pthread_self() as usize;
+        match (*world).threads.get(&real_tid) {
+            None    => { 
+                let fake_tid = (*world).ner.0.tid;
+                steal_ownership();
+                (*world).threads.insert(real_tid, fake_tid);
+                return_ownership();
+            }
+            Some(fake_tid)  => {
+                if *fake_tid != (*world).ner.0.tid { return baby; }
+            }
         };
 
         // Requests are equal. Return NER so that
         // the comparison in `lobby`succeeds by definition.
-        world.ner.0
+        (*world).ner.0
     }
 
     fn is_free(&self) -> bool {
@@ -408,23 +407,18 @@ impl State {
         match env::var("TRACEFILE") {
             Err(_)          => { graceful_exit("TRACEFILE not defined!"); },
             Ok(s) => {
-                let file_path = Path::new(&s);
-                if !file_path.exists() { graceful_exit("Trace file doesn't exist!"); }
-                else if !file_path.is_file() { graceful_exit("Trace file is not a file!"); }
-                else {
-                    trace = BufReader::new(File::open(file_path).unwrap());
-                    loop {
-                        let (next_req, placement) = Request::new_event(&mut trace);
-                        if next_req.is_useless() { continue; }
-                        if let ReqType::Done = next_req.rtype { break; }
-                        if !next_req.is_free() {
-                            let placement = placement.unwrap();
-                            let makespan = placement.implied_makespan();
-                            match heaps.get_mut(&placement.heap) {
-                                None    => { heaps.insert(placement.heap, (None, makespan)); },
-                                Some((_, v))    => { if makespan > *v { *v = makespan; } }
-                            };
-                        }
+                trace = open_file(&s);
+                loop {
+                    let (next_req, placement) = Request::new_event(&mut trace);
+                    if next_req.is_useless() { continue; }
+                    if let ReqType::Done = next_req.rtype { break; }
+                    if !next_req.is_free() {
+                        let placement = placement.unwrap();
+                        let makespan = placement.implied_makespan();
+                        match heaps.get_mut(&placement.heap) {
+                            None    => { heaps.insert(placement.heap, (None, makespan)); },
+                            Some((_, v))    => { if makespan > *v { *v = makespan; } }
+                        };
                     }
                 }
             }
@@ -437,14 +431,20 @@ impl State {
     }
 }
 
-static WORLD_LOCK:  Mutex<()> = Mutex::new(());
-static ITS_TIME:    Condvar = Condvar::new();
-static mut WORLD:   Lazy<State> = Lazy::new(|| { unsafe {State::new() }});
+static WORLD_LOCK:      Mutex<()> = Mutex::new(());
+static ITS_TIME:        Condvar = Condvar::new();
+static mut WORLD:       Lazy<State> = Lazy::new(|| { unsafe {State::new() }});
+static mut STATM_FILE:  Lazy<BufReader<File>> = Lazy::new(|| { unsafe {
+    let pid = getpid();
+    // Will allocate, but hopefully ownership is already stolen.
+    let path = format!("/proc/{}/statm", pid);
+    open_file(&path)
+} });
 
 pub fn lobby(r: ReqType) -> *mut void {
     let mut guard = WORLD_LOCK.lock().unwrap();
     unsafe {
-        while Request::new_call(r, &mut WORLD) != WORLD.ner.0 {
+        while Request::new_call(r, addr_of_mut!(WORLD)) != WORLD.ner.0 {
             guard = ITS_TIME.wait(guard).unwrap();
         };
 
@@ -461,6 +461,7 @@ pub fn lobby(r: ReqType) -> *mut void {
                 WORLD.objects.remove(&real_add).expect("Tried to free non-existent object.");
             }
         } else {
+            print_running_rss();
             // In the case of allocation, first check if heap has been spawned.
             let traced_heap = WORLD.ner.1.unwrap().heap;
             let traced_offset = WORLD.ner.1.unwrap().offset;
@@ -501,5 +502,36 @@ pub fn lobby(r: ReqType) -> *mut void {
         
         return_ownership();
         res
+    }
+}
+
+unsafe fn open_file(s: &str) -> BufReader<File> {
+    let file_path = Path::new(&s);
+    if !file_path.exists() { graceful_exit("File doesn't exist!"); }
+    else if !file_path.is_file() { graceful_exit("Given 'file' is not a file!"); }
+    else {
+        BufReader::new(File::open(file_path).unwrap())
+    }
+}
+
+unsafe fn print_running_rss() {
+    static mut MAX_RSS: u32 = 0;
+    static mut BUFFER: String = String::new();
+
+    BUFFER.clear();
+    STATM_FILE.rewind().unwrap();
+    STATM_FILE.read_to_string(&mut *addr_of_mut!(BUFFER)).unwrap();
+
+    let measurement = u32::from_str_radix(&BUFFER
+            .split(' ')
+            .skip(1)
+            .take(1)
+            .next()
+            .unwrap(), 10)
+            .unwrap();
+
+    if measurement > MAX_RSS {
+        eprintln!("New max = {measurement}");
+        MAX_RSS = measurement;
     }
 }

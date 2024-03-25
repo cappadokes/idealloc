@@ -842,8 +842,8 @@ impl<'o> Area<'o> {
                 stats.running_waste.insert(evt.time + 1, self.run_waste);
                 self.add_space.0 = evt.job.page_start_bottom();
                 self.add_space.1 = evt.job.page_end_top();
-                if let Some(_) = self.live.insert(evt.job.offset(), evt.job) {
-                    panic!("Init landed on filled live hash!");
+                if let Some(existing) = self.live.insert(evt.job.offset(), evt.job) {
+                    panic!("Already processed object {:?} temporally AND spatially overlaps with currently processed object {:?}!", existing, evt.job);
                 }
             },
             JobRole::Add    => {
@@ -862,13 +862,13 @@ impl<'o> Area<'o> {
                         self.run_waste += waste_incr;
                         stats.running_waste.insert(evt.time + 1, self.run_waste);
                         self.add_space.0 = evt.job.page_start_bottom();
-                        if let Some(_) = self.live.insert(evt.job.offset(), evt.job) {
-                            panic!("Add landed on filled live hash!");
+                        if let Some(existing) = self.live.insert(evt.job.offset(), evt.job) {
+                            panic!("Already processed object {:?} temporally AND spatially overlaps with currently processed object {:?}!", existing, evt.job);
                         }
                     },
                     Some(Position::Mid) => {
-                        if let Some(_) = self.live.insert(evt.job.home.offset, evt.job) {
-                            panic!("Add landed on filled live hash!");
+                        if let Some(existing) = self.live.insert(evt.job.offset(), evt.job) {
+                            panic!("Already processed object {:?} temporally AND spatially overlaps with currently processed object {:?}!", existing, evt.job);
                         }
                         stats.running_waste.insert(evt.time, self.run_waste);
                         let waste_incr = self.get_waste_core();
@@ -886,8 +886,8 @@ impl<'o> Area<'o> {
                         }
                         stats.running_waste.insert(evt.time + 1, self.run_waste);
                         self.add_space.1 = evt.job.page_end_top();
-                        if let Some(_) = self.live.insert(evt.job.home.offset, evt.job) {
-                            panic!("Add landed on filled live hash!");
+                        if let Some(existing) = self.live.insert(evt.job.offset(), evt.job) {
+                            panic!("Already processed object {:?} temporally AND spatially overlaps with currently processed object {:?}!", existing, evt.job);
                         }
                     },
                     None    => { panic!("Cannot add None pos-job"); }

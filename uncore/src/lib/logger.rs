@@ -5,6 +5,7 @@ pub use once_cell::sync::Lazy;
 pub use std::sync::{Mutex, TryLockError};
 pub use std::sync::atomic::{AtomicUsize, Ordering};
 use std::hash::BuildHasherDefault;
+use std::ptr::addr_of;
 use indexmap::IndexMap;
 use ahash::AHasher;
 
@@ -36,7 +37,7 @@ pub unsafe fn must_log() -> bool {
     static mut INIT_THREAD: pthread_t = 0;
 
     let tid = pthread_self();
-    match &INIT_LOCK {
+    match &*addr_of!(INIT_LOCK) {
         // Existence of the mutex is a signal that the map
         // has not been initialized.
         Some(mtx)   => {
@@ -61,7 +62,7 @@ pub unsafe fn must_log() -> bool {
                             }
                             // The rest of the threads must wait until
                             // initialization is complete.
-                            while let Some(_) = &INIT_LOCK {}
+                            while let Some(_) = &*addr_of!(INIT_LOCK) {}
                         }
                     }
                 }
@@ -137,7 +138,7 @@ pub unsafe fn update_log(req_idx: usize, args: &[usize]) {
 
     let test: usize;
 
-    match &INIT_LOCK {
+    match &*addr_of!(INIT_LOCK) {
         Some(mtx)   => {
             match mtx.try_lock() {
                 Ok(_)   => {
@@ -150,7 +151,7 @@ pub unsafe fn update_log(req_idx: usize, args: &[usize]) {
                             graceful_exit("Poisoned mutex upon log init.");
                         },
                         TryLockError::WouldBlock    => {
-                            while let Some(_) = &INIT_LOCK {}
+                            while let Some(_) = &*addr_of!(INIT_LOCK) {}
                             test = fwrite(buff.as_ptr() as *const void, 1, idx, *FD);
                         }
                     }
