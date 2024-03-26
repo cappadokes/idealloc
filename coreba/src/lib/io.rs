@@ -3,7 +3,7 @@ pub use std::fs::File;
 use std::env;
 use std::rc::Rc;
 pub use crate::utils::{Result, Error};
-use crate::elements::{AddrSet, Job, LiveSet, ReqType, Request};
+use crate::elements::{AddrSet, Job, ReqType, Request};
 
 pub fn parse_args() -> Result<(BufReader<File>, bool, Option<BufReader<File>>)> {
     let mut diss = false;
@@ -44,11 +44,11 @@ pub fn update_plc(w: &mut BufWriter<File>, j: &Rc<Job>, ba: &AddrSet) -> Result<
     Ok(())
 }
 
-pub fn update_trace(w: &mut BufWriter<File>, r: &Request, j: &Rc<Job>, b: &mut LiveSet, ba: &AddrSet, id: &mut usize) -> Result<()> {
+pub fn update_trace(w: &mut BufWriter<File>, r: Request, j: Option<(Rc<Job>, Option<Rc<Job>>)>, ba: &AddrSet) -> Result<()> {
     let mut buff: Vec<u8> = vec![];
     buff.push(r.rtype.get_sentinel());
 
-    let args = get_trc_args(r, j, b, ba, id);
+    let args = get_trc_args(r, j.unwrap(), ba);
 
     for arg in args {
         let arg_bytes = arg.to_be_bytes();
@@ -61,95 +61,65 @@ pub fn update_trace(w: &mut BufWriter<File>, r: &Request, j: &Rc<Job>, b: &mut L
     Ok(())
 }
 
-fn get_trc_args(r: &Request, j: &Rc<Job>, b: &mut LiveSet, ba: &AddrSet, id: &mut usize) -> Vec<usize> {
+fn get_trc_args(r: Request, j: (Rc<Job>, Option<Rc<Job>>), ba: &AddrSet) -> Vec<usize> {
     let mut res: Vec<usize> = vec![];
 
     match r.rtype {
         ReqType::Malloc(s)  => {
             res.push(s);
-            res.push(*ba.get(id).expect("Bad addr"));
-            j.id.set(*id);
-            *id += 1;
-            res.push(j.original_size());
+            res.push(*ba.get(&j.0.id()).expect("Bad addr"));
+            res.push(j.0.original_size());
             res.push(r.tid);
-            res.push(j.home.get().heap);
-            if let Some(_) = b.insert(j.origin.get(), j.clone()) {
-                panic!("bababa");
-            }
+            res.push(j.0.home.get().heap);
         },
         ReqType::Free(p)  => {
             if p != 0 {
-                res.push(*ba.get(&b.remove(&p).expect("lala").id()).expect("Bad addr2"));
+                res.push(*ba.get(&j.0.id()).expect("Bad addr2"));
             } else { res.push(0); }
             res.push(r.tid);
         },
         ReqType::Calloc(nobj, s)  => {
             res.push(nobj);
             res.push(s);
-            res.push(*ba.get(id).expect("Bad addr"));
-            j.id.set(*id);
-            *id += 1;
-            res.push(j.original_size());
+            res.push(*ba.get(&j.0.id()).expect("Bad addr"));
+            res.push(j.0.original_size());
             res.push(r.tid);
-            res.push(j.home.get().heap);
-            if let Some(_) = b.insert(j.origin.get(), j.clone()) {
-                panic!("bababa");
-            }
+            res.push(j.0.home.get().heap);
         },
         ReqType::ReAlloc(p, s)  => {
             if p != 0 {
-                res.push(*ba.get(&b.remove(&p).expect("lala").id()).expect("Bad addr2"));
+                res.push(*ba.get(&j.1.unwrap().id()).expect("Bad addr2"));
             } else { res.push(0); }
             res.push(s);
-            res.push(*ba.get(id).expect("Bad addr"));
-            j.id.set(*id);
-            *id += 1;
-            res.push(j.original_size());
+            res.push(*ba.get(&j.0.id()).expect("Bad addr"));
+            res.push(j.0.original_size());
             res.push(r.tid);
-            res.push(j.home.get().heap);
-            if let Some(_) = b.insert(j.origin.get(), j.clone()) {
-                panic!("bababa");
-            }
+            res.push(j.0.home.get().heap);
         },
         ReqType::AlignedAlloc(a, s)  => {
             res.push(a);
             res.push(s);
-            res.push(*ba.get(id).expect("Bad addr"));
-            j.id.set(*id);
-            *id += 1;
-            res.push(j.original_size());
+            res.push(*ba.get(&j.0.id()).expect("Bad addr"));
+            res.push(j.0.original_size());
             res.push(r.tid);
-            res.push(j.home.get().heap);
-            if let Some(_) = b.insert(j.origin.get(), j.clone()) {
-                panic!("bababa");
-            }
+            res.push(j.0.home.get().heap);
         },
         ReqType::MemAlign(a, s)  => {
             res.push(a);
             res.push(s);
-            res.push(*ba.get(id).expect("Bad addr"));
-            j.id.set(*id);
-            *id += 1;
-            res.push(j.original_size());
+            res.push(*ba.get(&j.0.id()).expect("Bad addr"));
+            res.push(j.0.original_size());
             res.push(r.tid);
-            res.push(j.home.get().heap);
-            if let Some(_) = b.insert(j.origin.get(), j.clone()) {
-                panic!("bababa");
-            }
+            res.push(j.0.home.get().heap);
         },
-        ReqType::PosixMemAlign(ptr, a, s)  => {
-            res.push(*ba.get(&b.remove(&ptr).expect("lala").id()).expect("Bad addr2"));
+        ReqType::PosixMemAlign(_ptr, a, s)  => {
+            res.push(*ba.get(&j.1.unwrap().id()).expect("Bad addr2"));
             res.push(a);
             res.push(s);
-            res.push(*ba.get(id).expect("Bad addr"));
-            j.id.set(*id);
-            *id += 1;
-            res.push(j.original_size());
+            res.push(*ba.get(&j.0.id()).expect("Bad addr"));
+            res.push(j.0.original_size());
             res.push(r.tid);
-            res.push(j.home.get().heap);
-            if let Some(_) = b.insert(j.origin.get(), j.clone()) {
-                panic!("bababa");
-            }
+            res.push(j.0.home.get().heap);
         },
         ReqType::Done   => { panic!("No dones allowed."); }
     }

@@ -1,4 +1,5 @@
 use crate::ffi::*;
+use libc::c_void;
 use once_cell::sync::Lazy;
 use std::sync::{Mutex, TryLockError, Condvar};
 use std::ptr::{addr_of, addr_of_mut};
@@ -111,6 +112,19 @@ pub enum ReqType {
 }
 
 impl ReqType {
+    fn get_req_size(&self) -> usize {
+        match self {
+            ReqType::Free(_)    => { panic!("Unreachable reached!"); },
+            ReqType::Malloc(s)  => { *s },
+            ReqType::Calloc(n, s)   => { (*n) * (*s)},
+            ReqType::ReAlloc(_, s)  => { *s },
+            ReqType::AlignedAlloc(_, s) => { *s },
+            ReqType::MemAlign(_, s) => { *s },
+            ReqType::PosixMemAlign(_, _, s) => { *s },
+            ReqType::Done    => { panic!("Unreachable reached!"); },
+        }
+    }
+
     fn is_free(&self) -> bool {
         if let ReqType::Free(_) = self {
             true
@@ -128,7 +142,7 @@ impl ReqType {
         match self {
             ReqType::Malloc(real_size)  => {
                 if let ReqType::Malloc(traced_size) = other {
-                    return (real_size == traced_size, 0, 0);
+                    return (*real_size == *traced_size, 0, 0);
                 }
             },
             ReqType::Free(real_address)  => {
@@ -139,7 +153,7 @@ impl ReqType {
             ReqType::Calloc(real_nobj, real_size)  => {
                 if let ReqType::Calloc(traced_nobj, traced_size) = other {
                     return (
-                        real_nobj == traced_nobj && real_size == traced_size,
+                        *real_nobj == *traced_nobj && *real_size == *traced_size,
                         0, 0
                     );
                 }
@@ -147,7 +161,7 @@ impl ReqType {
             ReqType::ReAlloc(real_address, real_size)  => {
                 if let ReqType::ReAlloc(traced_address, traced_size) = other { 
                     return (
-                        real_size == traced_size,
+                        *real_size == *traced_size,
                         *real_address,
                         *traced_address
                     );
@@ -156,7 +170,7 @@ impl ReqType {
             ReqType::AlignedAlloc(real_alignment, real_size)  => {
                 if let ReqType::AlignedAlloc(traced_alignment, traced_size) = other { 
                     return (
-                        real_alignment == traced_alignment && real_size == traced_size,
+                        *real_alignment == *traced_alignment && *real_size == *traced_size,
                         0, 0
                     );
                 }
@@ -164,7 +178,7 @@ impl ReqType {
             ReqType::MemAlign(real_alignment, real_size)  => {
                 if let ReqType::MemAlign(traced_alignment, traced_size) = other {
                     return (
-                        real_alignment == traced_alignment && real_size == traced_size,
+                        *real_alignment == *traced_alignment && *real_size == *traced_size,
                         0, 0
                     );
                 }
@@ -172,7 +186,7 @@ impl ReqType {
             ReqType::PosixMemAlign(real_address, real_alignment, real_size)  => {
                 if let ReqType::PosixMemAlign(traced_address, traced_alignment, traced_size) = other {
                     return (
-                        real_alignment == traced_alignment && real_size == traced_size,
+                        *real_alignment == *traced_alignment && *real_size == *traced_size,
                         *real_address,
                         *traced_address
                     )
@@ -309,7 +323,7 @@ impl Request {
             // NULL ptrs have been traced as zero values.
             match (*world).objects.get(&real_add) {
                 None    => { return baby; },
-                Some(a) => {
+                Some((a, _)) => {
                     if *a != traced_add { return baby; }
                 }
             }            
@@ -349,7 +363,7 @@ impl Request {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Placement {
     heap:   usize,
     offset: usize,
@@ -393,7 +407,7 @@ pub struct State {
     ner:            Event,
     heaps:          IndexMap<usize, MapInfo, BuildHasherDefault<AHasher>>,
     pub threads:    IndexMap<usize, usize, BuildHasherDefault<AHasher>>,
-    objects:        IndexMap<usize, usize, BuildHasherDefault<AHasher>>,
+    objects:        IndexMap<usize, (usize, usize), BuildHasherDefault<AHasher>>,
 }
 
 impl State {
@@ -473,14 +487,21 @@ pub fn lobby(r: ReqType) -> *mut void {
                 res = m.base.add(WORLD.ner.1.unwrap().offset);
             }
 
-            if let ReqType::ReAlloc(real_add, _) = r {
-                if real_add != 0 {
-                    WORLD.objects.remove(&real_add).expect("Tried to free non-existent object!");
+            if let ReqType::ReAlloc(old_real_add, _) = r {
+                if old_real_add != 0 {
+                    let (_, bytes_to_copy) = WORLD.objects.remove(&old_real_add).expect("Tried to free non-existent object!");
+                    let new_real_add = res;
+                    let old_real_add = old_real_add as *mut c_void;
+                    if old_real_add != new_real_add {
+                        // Remember! Re-allocation implies copying contents
+                        // upon moving them elsewhere in memory!
+                        new_real_add.copy_from(old_real_add, bytes_to_copy);
+                    }
                 }
             }
 
             // Now the space is, in theory, allocated. Update objects.
-            if let Some(_) = WORLD.objects.insert(res as usize, traced_heap + traced_offset) {
+            if let Some(_) = WORLD.objects.insert(res as usize, (traced_heap + traced_offset, r.get_req_size())) {
                 graceful_exit("Unexpected object found in place!");
             };
 

@@ -138,7 +138,7 @@ impl Job {
         let home = self.home.get();
         let mut final_address = home.heap + offset;
         if home.alignment != 0 && final_address % home.alignment != 0 {
-            final_address = final_address / home.alignment + home.alignment;
+            final_address += final_address % home.alignment;
         }
 
         self.home.set(Placement::new(home.heap, 

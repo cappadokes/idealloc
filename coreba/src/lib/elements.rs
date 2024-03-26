@@ -4,7 +4,7 @@ use ahash::AHasher;
 pub use crate::io::{BufReader, File, Read, Result, Error, BufWriter};
 use crate::algo::{do_placement, LilEGen, PlacedSet};
 
-type Event = (Request, Rc<Job>);
+type Event = (Request, Option<(Rc<Job>, Option<Rc<Job>>)>);
 
 /// A request may have one of 7 types, accompanied by
 /// the type's arguments--all of which have been stored
@@ -27,15 +27,6 @@ impl ReqType {
             true
         } else { 
             false 
-        }
-    }
-
-    fn get_alignment(&self) -> usize {
-        match self {
-            ReqType::AlignedAlloc(a, _) => { *a },
-            ReqType::MemAlign(a, _) => { *a },
-            ReqType::PosixMemAlign(_, a, _) => { *a},
-            _   => { 0 }
         }
     }
 
@@ -99,6 +90,21 @@ impl Placement {
     }
 }
 
+fn compute_proper_size(cand: usize) -> usize {
+    // Experiments with the `--diss` flag exposed
+    // segfaults when completely abiding to a program's
+    // requested sizes. This is an attempt to investigate
+    // whether allowing only size classes of multiples of
+    // 8 or 16 is what's missing.
+    const MIN_SIZE_CLASS: usize = 8;
+
+    if cand % MIN_SIZE_CLASS != 0 {
+        MIN_SIZE_CLASS * (cand / MIN_SIZE_CLASS + 1)
+    } else {
+        cand
+    }
+}
+
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct Request {
     // Info held matches the TRACED data!
@@ -133,12 +139,13 @@ impl Request {
                         _   => { panic!("Reached unreachable state!"); }
                     }
                 }
+                baby_job.origin.set(baby_job.addr().unwrap());
                 let j = Rc::new(baby_job);
                 if world.all.contains(&j) {
                     panic!("Two jobs with same ID found.");
                 } else {
                     if diss {
-                        j.initialize_size(j.home.get().req_size);
+                        j.initialize_size(compute_proper_size(j.home.get().req_size));
                     }
                     world.all.insert_job(j.clone());
                 }
@@ -155,11 +162,11 @@ impl Request {
         }
     }
 
-    fn new_event(trace: &mut BufReader<File>, diss: bool) -> Result<Event> {
+    fn new_event(world: &mut World, trace: &mut BufReader<File>, running_id: &mut usize) -> Result<Event> {
         //! Spawns a new event from a trace file.
         let mut sentinel: [u8; 1] = [0];
         let mut baby_req = Self { rtype: ReqType::Done, tid: 0 };
-        let baby_job = Job::new();
+        let mut baby_job = None;
         if let Ok(_) = trace.read_exact(&mut sentinel) {
             if  sentinel[0] != 0x05 &&
                 sentinel[0] != 0x12 &&
@@ -176,49 +183,134 @@ impl Request {
             // Buffer to get filled repeatedly.
             let mut word_buf: [u8; 8] = [0; 8];
             let mut i: u8 = 0;
-            let mut block_start: usize = 0;
-            let mut map_base: usize = 0;
             let mut tid: usize = 0;
-            let mut block_size: usize = 0;
             while i < words_left {
                 trace.read_exact(&mut word_buf).expect("Unexpected trace EOF");
                 let data = usize::from_be_bytes(word_buf);
-                if i == words_left - 1 && !req_type.is_free() {
-                    map_base = data;
-                } else if i == words_left - 2 && !req_type.is_free() {
+                if i == words_left - 2 && !req_type.is_free() {
                     tid = data;
-                } else if !req_type.is_free() && i == words_left - 3 {
-                    block_size = data;
-                } else if !req_type.is_free() && i == words_left - 4 {
-                    block_start = data;
                 }
                 match baby_req.rtype {
                     ReqType::Malloc(ref mut size)  => {
-                        if i == 0 { *size = data; }
+                        if i == 0 { 
+                            *size = data; 
+                            let got_alive = world.all
+                                .contents
+                                .get(running_id)
+                                .unwrap()
+                                .clone();
+                            *running_id += 1;
+                            baby_job = Some((got_alive.clone(), None));
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                                panic!("bababa");
+                            }
+                        }
                     },
                     ReqType::Calloc(ref mut nobj, ref mut size)  => {
-                        if i == 0 { *nobj = data; }
+                        if i == 0 { 
+                            let got_alive = world.all
+                                .contents
+                                .get(running_id)
+                                .unwrap()
+                                .clone();
+                            *running_id += 1;
+                            baby_job = Some((got_alive.clone(), None));
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                                panic!("bababa");
+                            }
+                            *nobj = data; 
+                        }
                         else if i == 1 { *size = data; }
                     },
                     ReqType::ReAlloc(ref mut p, ref mut size)  => {
-                        if i == 0 { *p = data; }
+                        if i == 0 { 
+                            *p = data;
+                            let got_alive = world.all
+                                .contents
+                                .get(running_id)
+                                .unwrap()
+                                .clone();
+                            *running_id += 1;
+                            baby_job = Some((got_alive.clone(), None));
+                            if let Some((_, ref mut inner)) = baby_job {
+                                if *p != 0 {
+                                    *inner = Some(world.live
+                                    .remove(p)
+                                    .unwrap());
+                                }
+                            };
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                                panic!("bababa");
+                            }
+                        }
                         else if i == 1 { *size = data; }
                     },
                     ReqType::AlignedAlloc(ref mut a, ref mut size) => {
-                        if i == 0 { *a = data; }
+                        if i == 0 { 
+                            let got_alive = world.all
+                                .contents
+                                .get(running_id)
+                                .unwrap()
+                                .clone();
+                            *running_id += 1;
+                            baby_job = Some((got_alive.clone(), None));
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                                panic!("bababa");
+                            }
+                            *a = data; 
+                        }
                         else if i == 1 { *size = data; }
                     },
                     ReqType::MemAlign(ref mut a, ref mut size) => {
-                        if i == 0 { *a = data; }
+                        if i == 0 { 
+                            let got_alive = world.all
+                                .contents
+                                .get(running_id)
+                                .unwrap()
+                                .clone();
+                            *running_id += 1;
+                            baby_job = Some((got_alive.clone(), None));
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                                panic!("bababa");
+                            }
+                            *a = data; 
+                        }
                         else if i == 1 { *size = data; }
                     },
                     ReqType::PosixMemAlign(ref mut p, ref mut a, ref mut size) => {
-                        if i == 0 { *p = data; }
+                        if i == 0 { 
+                            *p = data; 
+                            let got_alive = world.all
+                                .contents
+                                .get(running_id)
+                                .unwrap()
+                                .clone();
+                            *running_id += 1;
+                            baby_job = Some((got_alive.clone(), None));
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                                panic!("bababa");
+                            }
+                            if let Some((_, ref mut inner)) = baby_job {
+                                *inner = Some(world.live
+                                .get(p)
+                                .unwrap()
+                                .clone());
+                            };
+                        }
                         else if i == 1 { *a = data; }
                         else if i == 2 { *size = data; }
                     },
                     ReqType::Free(ref mut p)   => {
-                        if i == 0 { *p = data; block_start = data; }
+                        if i == 0 { 
+                            *p = data; 
+                            if *p != 0 {
+                                baby_job = Some((world.live
+                                    .remove(p)
+                                    .unwrap(), None));
+                            } else {
+                                baby_job = Some((Rc::new(Job::new()), None));
+                            }
+                        }
                         else { tid = data; }
                     },
                     ReqType::Done   => {
@@ -227,26 +319,10 @@ impl Request {
                 };
                 i += 1;
             };
-            baby_job.origin.set(block_start);
-            if !baby_req.rtype.is_free() {
-                // 2 usage scenarios: either we respect the allocator's decisions
-                // w.r.t. block sizes, or we don't (i.e., we diss-respect them).
-                if !diss {
-                    baby_job.initialize_size(block_size);
-                } else {
-                    baby_job.initialize_size(baby_req.rtype.get_requested_size());
-                }
-                baby_job.home.set(Placement::new(
-                    map_base,
-                    block_start - map_base,
-                    baby_req.rtype.get_alignment(),
-                    baby_req.rtype.get_requested_size())
-                );
-            }
             baby_req.tid = tid;
         };
 
-        Ok((baby_req, Rc::new(baby_job)))
+        Ok((baby_req, baby_job))
     }
 
     pub fn is_done(&self) -> bool {
@@ -405,7 +481,7 @@ impl World {
         }
     }
 
-    pub fn give_back(&mut self) -> Result<()> {
+    pub fn give_back(mut self) -> Result<()> {
         let fd = File::options()
             .write(true)
             .create(true)
@@ -427,26 +503,27 @@ impl World {
         let mut writer = BufWriter::new(fd);
 
         self.live.clear();
-        let mut running_id: usize = 0;
-        for (r, j) in &self.events {
-            crate::io::update_trace(&mut writer, r, j, &mut self.live, &self.best_addresses, &mut running_id)?;
+        for (r, j) in self.events {
+            crate::io::update_trace(&mut writer, r, j,&self.best_addresses)?;
         }
 
         Ok(())
     }
 
     pub fn populate(&mut self, mut plc: BufReader<File>, diss: bool, maybe_trc: Option<BufReader<File>>) -> Result<()> {
+        // We want to tie PLC jobs to requests.
+        while let Some(_) = Request::new_from_plc(self, &mut plc, diss) {
+            self.next_id += 1;
+        }
         if let Some(mut trace) = maybe_trc {
+            let mut running_id = 0;
             loop {
-                let (req, _job) = Request::new_event(&mut trace, diss)?;
+                let (req, job) = Request::new_event(self, &mut trace, &mut running_id)?;
                 if req.is_done() { 
                     break;
                 }
-                self.events.push((req, _job));
+                self.events.push((req, job));
             }
-        }
-        while let Some(_) = Request::new_from_plc(self, &mut plc, diss) {
-            self.next_id += 1;
         }
 
         Ok(())
@@ -473,7 +550,7 @@ impl World {
         heaps
     }
 
-    pub fn optimize(&mut self) {
+    pub fn optimize(mut self) {
         // First thing to do is to determine how many
         // heaps we're operating on.
         for (base_address, mut contents) in self.prepare_heaps() {
@@ -482,7 +559,7 @@ impl World {
             let backup = contents.clone();
             println!("{} ({} jobs): (t_m, max_load) = {:?}, (h_min, h_max) = {:?}", base_address, contents.get_len(), contents.max_load(), contents.min_max_height());
             let mut best_makespan = usize::MAX;
-            const NUM_TRIALS: usize = 5_000;
+            const NUM_TRIALS: usize = 5;
             let mut done = 0;
             while done < NUM_TRIALS {
                 contents = backup.clone();
@@ -525,7 +602,7 @@ impl World {
                     self.magic.update_history(None);
                 } else if tight.max_addr < best_makespan {
                     best_makespan = tight.max_addr;
-                    println!("Improved! Current best = {} ({} iters)", best_makespan / 4096, done + 1);
+                    println!("Improved! Current best = {} ({} iters)", best_makespan / 4096 + 1, done + 1);
                     self.update_addresses(&tight);
                     self.magic.update_history(Some(best_makespan));
                 }

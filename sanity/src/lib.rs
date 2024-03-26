@@ -83,7 +83,10 @@ impl Request {
             ReqType::AlignedAlloc(a, _) => { a },
             ReqType::MemAlign(a, _) => { a },
             ReqType::PosixMemAlign(_, a, _) => { a },
-            _   => { 0 }
+            // malloc for GNU systems abides to a default 16-byte alignment
+            // on 64-bit systems (8 bytes for 32-bit). This finding came out
+            // of one of the hardest debugging sessions I have ever done.
+            _   => { 16 }
         }
     }
 
