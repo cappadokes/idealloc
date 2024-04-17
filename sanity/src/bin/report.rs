@@ -6,7 +6,7 @@ fn main() {
         assert!(target.is_file());
         let f = BufReader::new(File::open(target).unwrap());
         let mut world = SimWorld::new(f);
-        while let Some(_) = Request::new_from_plc(&mut world) {};
+        while let Some(_) = Request::new_from_plc(&mut world) {}
 
         let mut the_truth = TDBP::new(world);
         the_truth.init_mappings();

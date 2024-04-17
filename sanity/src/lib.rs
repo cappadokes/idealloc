@@ -1,40 +1,42 @@
 pub use std::env;
-use std::io::{BufRead, BufWriter};
-pub use std::path::Path;
-pub use std::io::{BufReader, Read};
 pub use std::fs::File;
+use std::io::{BufRead, BufWriter};
+pub use std::io::{BufReader, Read};
+pub use std::path::Path;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ReqType {
-    Malloc          (usize),
-    Free            (usize),
-    Calloc          (usize, usize),
-    ReAlloc         (usize, usize),
-    AlignedAlloc    (usize, usize),
-    MemAlign        (usize, usize),
-    PosixMemAlign   (usize, usize, usize),
-    Done
+    Malloc(usize),
+    Free(usize),
+    Calloc(usize, usize),
+    ReAlloc(usize, usize),
+    AlignedAlloc(usize, usize),
+    MemAlign(usize, usize),
+    PosixMemAlign(usize, usize, usize),
+    Done,
 }
 
 impl ReqType {
     fn is_free(&self) -> bool {
         if let ReqType::Free(_) = self {
             true
-        } else { 
-            false 
+        } else {
+            false
         }
     }
 
     pub fn get_sentinel(&self) -> u8 {
         match self {
-            ReqType::Malloc(_)  => { 0x05 },
-            ReqType::Free(_)    => { 0x12 },
-            ReqType::Calloc(_, _)   => { 0x26 },
-            ReqType::ReAlloc(_, _)  => { 0x36 },
-            ReqType::AlignedAlloc(_, _) => { 0x46 },
-            ReqType::MemAlign(_, _) => { 0x56 },
-            ReqType::PosixMemAlign(_, _, _) => { 0x67 },
-            ReqType::Done   => { panic!("Attempted to write Done req."); }
+            ReqType::Malloc(_) => 0x05,
+            ReqType::Free(_) => 0x12,
+            ReqType::Calloc(_, _) => 0x26,
+            ReqType::ReAlloc(_, _) => 0x36,
+            ReqType::AlignedAlloc(_, _) => 0x46,
+            ReqType::MemAlign(_, _) => 0x56,
+            ReqType::PosixMemAlign(_, _, _) => 0x67,
+            ReqType::Done => {
+                panic!("Attempted to write Done req.");
+            }
         }
     }
 }
@@ -53,15 +55,20 @@ const CODES: [ReqType; 7] = [
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Placement {
-    heap:   usize,
+    heap: usize,
     offset: usize,
-    size:   usize,
-    align:  usize,
+    size: usize,
+    align: usize,
 }
 
 impl Placement {
     fn new(heap: usize, offset: usize, size: usize, align: usize) -> Self {
-        Self { heap, offset, size, align }
+        Self {
+            heap,
+            offset,
+            size,
+            align,
+        }
     }
 
     fn address(&self) -> usize {
@@ -72,34 +79,40 @@ impl Placement {
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct Request {
     // Info held matches the TRACED data!
-    pub rtype:  ReqType,
-    tid:        usize
+    pub rtype: ReqType,
+    tid: usize,
 }
 
 impl Request {
     fn get_alignment(&self) -> usize {
         match self.rtype {
-            ReqType::Free(_)    => { panic!("Unreachable reached!"); },
-            ReqType::AlignedAlloc(a, _) => { a },
-            ReqType::MemAlign(a, _) => { a },
-            ReqType::PosixMemAlign(_, a, _) => { a },
+            ReqType::Free(_) => {
+                panic!("Unreachable reached!");
+            }
+            ReqType::AlignedAlloc(a, _) => a,
+            ReqType::MemAlign(a, _) => a,
+            ReqType::PosixMemAlign(_, a, _) => a,
             // malloc for GNU systems abides to a default 16-byte alignment
             // on 64-bit systems (8 bytes for 32-bit). This finding came out
             // of one of the hardest debugging sessions I have ever done.
-            _   => { 16 }
+            _ => 16,
         }
     }
 
     fn get_req_size(&self) -> usize {
         match self.rtype {
-            ReqType::Free(_)    => { panic!("Unreachable reached!"); },
-            ReqType::Malloc(s)  => { s },
-            ReqType::Calloc(n, s)   => { n * s},
-            ReqType::ReAlloc(_, s)  => { s },
-            ReqType::AlignedAlloc(_, s) => { s },
-            ReqType::MemAlign(_, s) => { s },
-            ReqType::PosixMemAlign(_, _, s) => { s },
-            ReqType::Done    => { panic!("Unreachable reached!"); },
+            ReqType::Free(_) => {
+                panic!("Unreachable reached!");
+            }
+            ReqType::Malloc(s) => s,
+            ReqType::Calloc(n, s) => n * s,
+            ReqType::ReAlloc(_, s) => s,
+            ReqType::AlignedAlloc(_, s) => s,
+            ReqType::MemAlign(_, s) => s,
+            ReqType::PosixMemAlign(_, _, s) => s,
+            ReqType::Done => {
+                panic!("Unreachable reached!");
+            }
         }
     }
 
@@ -107,17 +120,21 @@ impl Request {
         //! Spawns a new event from a trace file.
         let trace = &mut world.input;
         let mut sentinel: [u8; 1] = [0];
-        let mut baby_req = Self { rtype: ReqType::Done, tid: 0 };
+        let mut baby_req = Self {
+            rtype: ReqType::Done,
+            tid: 0,
+        };
         let mut baby_place = None;
         if let Ok(_) = trace.read_exact(&mut sentinel) {
-            if  sentinel[0] != 0x05 &&
-                sentinel[0] != 0x12 &&
-                sentinel[0] != 0x26 &&
-                sentinel[0] != 0x36 &&
-                sentinel[0] != 0x46 &&
-                sentinel[0] != 0x56 &&
-                sentinel[0] != 0x67 {
-                    panic!("Corrupt trace file."); 
+            if sentinel[0] != 0x05
+                && sentinel[0] != 0x12
+                && sentinel[0] != 0x26
+                && sentinel[0] != 0x36
+                && sentinel[0] != 0x46
+                && sentinel[0] != 0x56
+                && sentinel[0] != 0x67
+            {
+                panic!("Corrupt trace file.");
             }
             let req_type = CODES[((sentinel[0] & 0b11110000u8) >> 4) as usize];
             baby_req.rtype = req_type;
@@ -130,7 +147,9 @@ impl Request {
             let mut tid: usize = 0;
             let mut block_size: usize = 0;
             while i < words_left {
-                trace.read_exact(&mut word_buf).expect("Unexpected trace EOF");
+                trace
+                    .read_exact(&mut word_buf)
+                    .expect("Unexpected trace EOF");
                 let data = usize::from_be_bytes(word_buf);
                 if i == words_left - 1 && !req_type.is_free() {
                     map_base = data;
@@ -142,42 +161,68 @@ impl Request {
                     block_start = data;
                 }
                 match baby_req.rtype {
-                    ReqType::Malloc(ref mut size)  => {
-                        if i == 0 { *size = data; }
-                    },
-                    ReqType::Calloc(ref mut nobj, ref mut size)  => {
-                        if i == 0 { *nobj = data; }
-                        else if i == 1 { *size = data; }
-                    },
-                    ReqType::ReAlloc(ref mut p, ref mut size)  => {
-                        if i == 0 { *p = data; }
-                        else if i == 1 { *size = data; }
-                    },
+                    ReqType::Malloc(ref mut size) => {
+                        if i == 0 {
+                            *size = data;
+                        }
+                    }
+                    ReqType::Calloc(ref mut nobj, ref mut size) => {
+                        if i == 0 {
+                            *nobj = data;
+                        } else if i == 1 {
+                            *size = data;
+                        }
+                    }
+                    ReqType::ReAlloc(ref mut p, ref mut size) => {
+                        if i == 0 {
+                            *p = data;
+                        } else if i == 1 {
+                            *size = data;
+                        }
+                    }
                     ReqType::AlignedAlloc(ref mut a, ref mut size) => {
-                        if i == 0 { *a = data; }
-                        else if i == 1 { *size = data; }
-                    },
+                        if i == 0 {
+                            *a = data;
+                        } else if i == 1 {
+                            *size = data;
+                        }
+                    }
                     ReqType::MemAlign(ref mut a, ref mut size) => {
-                        if i == 0 { *a = data; }
-                        else if i == 1 { *size = data; }
-                    },
+                        if i == 0 {
+                            *a = data;
+                        } else if i == 1 {
+                            *size = data;
+                        }
+                    }
                     ReqType::PosixMemAlign(ref mut p, ref mut a, ref mut size) => {
-                        if i == 0 { *p = data; }
-                        else if i == 1 { *a = data; }
-                        else if i == 2 { *size = data; }
-                    },
-                    ReqType::Free(ref mut p)   => {
-                        if i == 0 { *p = data; }
-                        else { tid = data; }
-                    },
-                    ReqType::Done   => {
+                        if i == 0 {
+                            *p = data;
+                        } else if i == 1 {
+                            *a = data;
+                        } else if i == 2 {
+                            *size = data;
+                        }
+                    }
+                    ReqType::Free(ref mut p) => {
+                        if i == 0 {
+                            *p = data;
+                        } else {
+                            tid = data;
+                        }
+                    }
+                    ReqType::Done => {
                         panic!("Unreachable block reached.");
-                    },
+                    }
                 };
                 i += 1;
-            };
+            }
             if !baby_req.rtype.is_free() {
-                baby_place = Some(Placement::new(map_base, block_start - map_base, block_size, baby_req.get_alignment()));
+                baby_place = Some(Placement::new(
+                    map_base,
+                    block_start - map_base,
+                    block_size,
+                    baby_req.get_alignment(),
+                ));
             }
             baby_req.tid = tid;
         };
@@ -193,35 +238,46 @@ impl Request {
 
     pub fn new_minimalloc_event(world: &mut SimWorld) -> Option<()> {
         let maybe_dirty = &mut world.input;
-        if let Some(l) = maybe_dirty.lines()
+        if let Some(l) = maybe_dirty
+            .lines()
             .skip(if world.objects_num == 0 { 1 } else { 0 })
-            .next() {
-                match l {
-                    Ok(txt) => {
-                        world.objects_num += 1;
-                        let data: Vec<usize> = txt.split(',')
-                            .map(|chrs| usize::from_str_radix(chrs, 10).unwrap())
-                            .collect();
-                        assert_eq!(data.len(), 5, "Expected CSV has 5 columns.");
-                        let obj_id = data[0];
-                        match world.all_objects.insert(obj_id, Object::new_from_csv(&data)) {
-                            None    => {},
-                            Some(j) => {
-                                panic!("Tried to overwrite {:?}", j);
-                            }
+            .next()
+        {
+            match l {
+                Ok(txt) => {
+                    world.objects_num += 1;
+                    let data: Vec<usize> = txt
+                        .split(',')
+                        .map(|chrs| usize::from_str_radix(chrs, 10).unwrap())
+                        .collect();
+                    assert!(data.len() == 5 || data.len() == 4, "Expected CSV has 4 or 5 columns.");
+                    let obj_id = data[0];
+                    match world
+                        .all_objects
+                        .insert(obj_id, Object::new_from_csv(&data))
+                    {
+                        None => {}
+                        Some(j) => {
+                            panic!("Tried to overwrite {:?}", j);
                         }
-                        return Some(());
-                    },
-                    Err(_)  => { panic!("Error parsing mimalloc output."); }
+                    }
+                    return Some(());
                 }
+                Err(_) => {
+                    panic!("Error parsing mimalloc output.");
+                }
+            }
         };
 
         None
     }
 
     fn is_done(&self) -> bool {
-        if let ReqType::Done = self.rtype { true }
-        else { false }
+        if let ReqType::Done = self.rtype {
+            true
+        } else {
+            false
+        }
     }
 
     pub fn new_from_plc(world: &mut SimWorld) -> Option<()> {
@@ -229,14 +285,19 @@ impl Request {
         let plc_source = &mut world.input;
         let mut buffer: [u8; 8 * PLC_FIELDS_NUM] = [0; 8 * PLC_FIELDS_NUM];
         let mut baby_job = Object {
-            birth:  0,
-            death:  0,
+            birth: 0,
+            death: 0,
             height: 0,
-            home:   Placement { heap: 0, offset: 0, size: 0, align: 0 },
-            id:     0
+            home: Placement {
+                heap: 0,
+                offset: 0,
+                size: 0,
+                align: 0,
+            },
+            id: 0,
         };
         match plc_source.read_exact(&mut buffer) {
-            Ok(_)   => {
+            Ok(_) => {
                 let mut words_read = 0;
                 while words_read < PLC_FIELDS_NUM {
                     let mut word_buffer: [u8; 8] = [0; 8];
@@ -246,39 +307,57 @@ impl Request {
                     words_read += 1;
                     let data = usize::from_be_bytes(word_buffer);
                     match words_read {
-                        1   => { baby_job.id = data; },
-                        2   => { baby_job.birth = data; },
-                        3   => { baby_job.death = data; },
-                        4   => { baby_job.home.size = data; },
-                        5   => { baby_job.home.heap = data; },
-                        6   => { baby_job.home.offset = data; },
-                        7   => { baby_job.home.align = data; },
-                        8   => { baby_job.height = data; },
-                        _   => { panic!("Reached unreachable state!"); }
+                        1 => {
+                            baby_job.id = data;
+                        }
+                        2 => {
+                            baby_job.birth = data;
+                        }
+                        3 => {
+                            baby_job.death = data;
+                        }
+                        4 => {
+                            baby_job.home.size = data;
+                        }
+                        5 => {
+                            baby_job.home.heap = data;
+                        }
+                        6 => {
+                            baby_job.home.offset = data;
+                        }
+                        7 => {
+                            baby_job.home.align = data;
+                        }
+                        8 => {
+                            baby_job.height = data;
+                        }
+                        _ => {
+                            panic!("Reached unreachable state!");
+                        }
                     }
                 }
                 match world.all_objects.insert(baby_job.id, baby_job) {
                     Some(j) => {
                         panic!("Tried to overwrite {j:?}!");
-                    },
-                    None    => {}
+                    }
+                    None => {}
                 };
 
                 Some(())
-            },
-            Err(_)  => { None }
+            }
+            Err(_) => None,
         }
     }
 }
 
 #[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct Object {
-    pub birth:      usize,
-    pub death:      usize,
+    pub birth: usize,
+    pub death: usize,
     // CAUTION: This is the REQUESTED, not the ALLOCATED size!
-    pub height:     usize,
-    pub home:       Placement,
-    id:             usize
+    pub height: usize,
+    pub home: Placement,
+    id: usize,
 }
 
 // In the context of fragmentation calculation, we are
@@ -314,11 +393,17 @@ impl Object {
 
     fn new_from_csv(data: &Vec<usize>) -> Self {
         Self {
-            birth:  data[1],
-            death:  data[2],
+            birth: data[1],
+            death: data[2],
             height: data[3],
-            home:   Placement { heap: 62, offset: data[4], size: data[3], align: 0 },
-            id:     data[0]
+            home: Placement {
+                heap: 62,
+                offset: if let Some(v) = data.get(4) {
+                    *v } else { 0 },
+                size: data[3],
+                align: 0,
+            },
+            id: data[0],
         }
     }
 
@@ -332,33 +417,44 @@ impl Object {
 
         if let ReqType::ReAlloc(old_add, _) = inciting_req.rtype {
             if old_add != 0 {
-                let mut to_retire = world.jobs
-                    .remove(&old_add)
-                    .unwrap();
+                let mut to_retire = world.jobs.remove(&old_add).unwrap();
                 to_retire.death = world.time;
-                assert!(world.all_objects.insert(to_retire.id(), to_retire).is_none());
+                assert!(world
+                    .all_objects
+                    .insert(to_retire.id(), to_retire)
+                    .is_none());
             }
         }
-        
+
         if let ReqType::Free(old_add) = inciting_req.rtype {
             if old_add != 0 {
                 let mut to_retire = world.jobs.remove(&old_add).unwrap();
                 to_retire.death = world.time;
-                assert!(world.all_objects.insert(to_retire.id(), to_retire).is_none());
+                assert!(world
+                    .all_objects
+                    .insert(to_retire.id(), to_retire)
+                    .is_none());
             }
-        }
-        else { 
+        } else {
             let data = data.unwrap();
-            let res = Object { 
-                birth: world.time, 
+            let res = Object {
+                birth: world.time,
                 // To be filled upon retirement.
-                death: 0, 
-                height: inciting_req.get_req_size(), 
+                death: 0,
+                height: inciting_req.get_req_size(),
                 // Mapping to be filled later in this function.
-                home: data, 
-                id
+                home: data,
+                id,
             };
-            world.update_time(data.size);
+            // There's the question of whether time should be allocator-agnostic
+            // or not. Up till now I've used ALLOCATED block sizes to progress it,
+            // which of course changes bin lengths in addition to bin heights.
+            //
+            // My gut says to go with REQUESTED block sizes instead, since it imposes
+            // some much-needed uniformity. I'll go with that, and leave my old decision
+            // commented-out for posterity.
+            //world.update_time(data.size);
+            world.update_time(res.height);
             if let Some(_culprit) = world.jobs.insert(data.address(), res) {
                 panic!("Tried to insert job w/ existing ID!");
             };
@@ -366,15 +462,27 @@ impl Object {
     }
 
     // Some helper functions for address arithmetic.
-    fn offset(&self) -> usize { self.home.offset }
-    fn page_local_offset(&self) -> usize { self.home.offset % utils::PAGE_SIZE }
-    fn page_start_bottom(&self) -> usize { self.home.offset / utils::PAGE_SIZE * utils::PAGE_SIZE }
-    fn page_end_top(&self) -> usize { (1 + self.top_add() / utils::PAGE_SIZE) * utils::PAGE_SIZE - 1 }
-    fn next_avail_add(&self) -> usize { self.home.offset + self.size() }
-    pub fn top_add(&self) -> usize { self.next_avail_add() - 1 }
+    fn offset(&self) -> usize {
+        self.home.offset
+    }
+    fn page_local_offset(&self) -> usize {
+        self.home.offset % utils::PAGE_SIZE
+    }
+    fn page_start_bottom(&self) -> usize {
+        self.home.offset / utils::PAGE_SIZE * utils::PAGE_SIZE
+    }
+    fn page_end_top(&self) -> usize {
+        (1 + self.top_add() / utils::PAGE_SIZE) * utils::PAGE_SIZE - 1
+    }
+    fn next_avail_add(&self) -> usize {
+        self.home.offset + self.size()
+    }
+    pub fn top_add(&self) -> usize {
+        self.next_avail_add() - 1
+    }
     fn gap_same_page(&self, other: &Self) -> bool {
         if self.top_add() < other.home.offset {
-                self.next_avail_add() / utils::PAGE_SIZE == other.home.offset / utils::PAGE_SIZE
+            self.next_avail_add() / utils::PAGE_SIZE == other.home.offset / utils::PAGE_SIZE
                 // Limit case!
             &&  self.next_avail_add() < self.page_end_top()
         } else {
@@ -391,11 +499,15 @@ impl Object {
                 // Jobs are in different pages, with nothing else in between.
                 0
             }
-        } else { other.gap(self) }
+        } else {
+            other.gap(self)
+        }
     }
 
     fn runner_gap(&self, runner: usize) -> Option<usize> {
-        if runner > self.home.offset { panic!("Runner can't exceed offset."); }
+        if runner > self.home.offset {
+            panic!("Runner can't exceed offset.");
+        }
         let cand = self.home.offset - runner;
         if cand < utils::PAGE_SIZE {
             Some(cand)
@@ -405,20 +517,20 @@ impl Object {
     }
 }
 
-use indexmap::IndexMap;
 use ahash::AHasher;
+use indexmap::IndexMap;
 
 type ObSet = IndexMap<usize, Object, std::hash::BuildHasherDefault<AHasher>>;
 
 pub struct SimWorld {
     // Live jobs.
-    jobs:               ObSet,
-    time:               usize,
+    jobs: ObSet,
+    time: usize,
     // Trace file.
-    input:              BufReader<File>,
-    pub objects_num:    usize,
+    input: BufReader<File>,
+    pub objects_num: usize,
     // All jobs.
-    all_objects:        ObSet
+    all_objects: ObSet,
 }
 
 impl SimWorld {
@@ -430,12 +542,12 @@ impl SimWorld {
     }
 
     pub fn new(input: BufReader<File>) -> Self {
-        Self { 
+        Self {
             jobs: IndexMap::default(),
             time: 0,
             input,
             objects_num: 0,
-            all_objects: IndexMap::default()
+            all_objects: IndexMap::default(),
         }
     }
 
@@ -447,12 +559,7 @@ impl SimWorld {
     }
 
     pub fn give_back(&self, input_csv_name: &Path) {
-        let no_suffix_name = String::from(
-            input_csv_name.file_stem()
-                .unwrap()
-                .to_str()
-                .unwrap()
-        );
+        let no_suffix_name = String::from(input_csv_name.file_stem().unwrap().to_str().unwrap());
         let fd = File::options()
             .write(true)
             .create(true)
@@ -491,12 +598,12 @@ fn get_args(j: &Object) -> Vec<usize> {
         j.home.heap,
         j.home.offset,
         j.home.align,
-        j.height
+        j.height,
     ]
 }
 
-use std::collections::{BTreeSet, BTreeMap, BinaryHeap};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 // As we traverse our workload, we store
 // information w.r.t. the load and the
@@ -505,26 +612,27 @@ use serde::{Serialize, Deserialize};
 // other useful things.
 #[derive(Serialize, Deserialize)]
 struct WorkloadStats {
-    running_load:   BTreeMap<usize, usize>,
-    running_waste:  BTreeMap<usize, usize>,
-    agg_data:       BTreeMap<usize, (usize, usize)>,
-    time:           BTreeSet<usize>,
-    max_load_t:     usize,
-    makespan:       usize,
-    max_size:       usize,
-    objects_num:    usize,
+    running_load: BTreeMap<usize, usize>,
+    running_waste: BTreeMap<usize, usize>,
+    agg_data: BTreeMap<usize, (usize, usize)>,
+    time: BTreeSet<usize>,
+    max_load_t: usize,
+    makespan: usize,
+    max_size: usize,
+    objects_num: usize,
 }
 
 impl WorkloadStats {
     fn new() -> Self {
-        Self {  running_load:   BTreeMap::new(),
-                running_waste:  BTreeMap::new(),
-                agg_data:       BTreeMap::new(),
-                time:           BTreeSet::new(),
-                max_load_t:     0,
-                makespan:       0,
-                max_size:       0, 
-                objects_num:    0
+        Self {
+            running_load: BTreeMap::new(),
+            running_waste: BTreeMap::new(),
+            agg_data: BTreeMap::new(),
+            time: BTreeSet::new(),
+            max_load_t: 0,
+            makespan: 0,
+            max_size: 0,
+            objects_num: 0,
         }
     }
 
@@ -533,30 +641,31 @@ impl WorkloadStats {
         for t in steps {
             if let Some(v) = self.running_load.get(t) {
                 sum = *v;
-            }
-            else {
-                self.running_load.insert(*t, sum); 
+            } else {
+                self.running_load.insert(*t, sum);
             }
         }
         sum = 0;
         for t in steps {
             if let Some(v) = self.running_waste.get(t) {
                 sum = *v;
-            }
-            else {
-                self.running_waste.insert(*t, sum); 
+            } else {
+                self.running_waste.insert(*t, sum);
             }
         }
     }
 
     fn max_load(&self) -> (usize, usize) {
-        (self.max_load_t, *self.running_load.get(&self.max_load_t).unwrap())
+        (
+            self.max_load_t,
+            *self.running_load.get(&self.max_load_t).unwrap(),
+        )
     }
 
     fn load_at_t(&self, t: usize) -> (usize, usize) {
         (
             *self.running_load.get(&t).unwrap(),
-            self.agg_data.get(&t).unwrap().0
+            self.agg_data.get(&t).unwrap().0,
         )
     }
 
@@ -576,15 +685,15 @@ impl WorkloadStats {
 
 #[derive(Serialize, Deserialize)]
 pub struct Mapping {
-    pub objects:        Vec<Object>,
-    pub address_space:  (usize, usize),
-    pub time_endpoints: (usize, usize)
+    pub objects: Vec<Object>,
+    pub address_space: (usize, usize),
+    pub time_endpoints: (usize, usize),
 }
 
 impl Mapping {
     fn new(o: Object) -> Self {
-        Self { 
-            address_space: (o.page_start_bottom(), o.page_end_top()), 
+        Self {
+            address_space: (o.page_start_bottom(), o.page_end_top()),
             time_endpoints: (o.birth, o.death),
             objects: vec![o],
         }
@@ -593,8 +702,8 @@ impl Mapping {
 
 #[derive(Serialize, Deserialize)]
 pub struct TDBP {
-    pub mappings:   IndexMap<usize, Mapping, std::hash::BuildHasherDefault<AHasher>>,
-    stats:          WorkloadStats
+    pub mappings: IndexMap<usize, Mapping, std::hash::BuildHasherDefault<AHasher>>,
+    stats: WorkloadStats,
 }
 
 impl TDBP {
@@ -618,7 +727,7 @@ impl TDBP {
             }
             let test_map = test.home.heap;
             match res.mappings.get_mut(&test_map) {
-                Some(jobs)  => {
+                Some(jobs) => {
                     if test.page_start_bottom() < jobs.address_space.0 {
                         jobs.address_space.0 = test.page_start_bottom();
                     }
@@ -632,11 +741,16 @@ impl TDBP {
                         jobs.time_endpoints.1 = test.death;
                     }
                     jobs.objects.push(test);
-                },
-                None    => { res.mappings.insert(test_map, Mapping::new(test)); }
+                }
+                None => {
+                    res.mappings.insert(test_map, Mapping::new(test));
+                }
             }
-        };
-        println!("Commencing processing of {} objects...", res.stats.objects_num);
+        }
+        println!(
+            "Commencing processing of {} objects...",
+            res.stats.objects_num
+        );
 
         res
     }
@@ -661,8 +775,8 @@ impl TDBP {
         // that if the load vector is non-empty, both itself
         // AND the waste vector contain valid, complete data.
         if self.stats.running_load.is_empty() {
-            use std::sync::Mutex;
             use rayon::prelude::*;
+            use std::sync::Mutex;
 
             let all_map_stats: Mutex<Vec<WorkloadStats>> = Mutex::new(vec![]);
 
@@ -682,14 +796,22 @@ impl TDBP {
                 elt.inject_points(&self.stats.time);
                 for (t, ld) in &elt.running_load {
                     match self.stats.running_load.get_mut(t) {
-                        None    => { self.stats.running_load.insert(*t, *ld); },
-                        Some(old)   => { *old += *ld; }
+                        None => {
+                            self.stats.running_load.insert(*t, *ld);
+                        }
+                        Some(old) => {
+                            *old += *ld;
+                        }
                     };
                 }
                 for (t, wst) in &elt.running_waste {
                     match self.stats.running_waste.get_mut(t) {
-                        None    => { self.stats.running_waste.insert(*t, *wst); },
-                        Some(old)   => { *old += *wst; }
+                        None => {
+                            self.stats.running_waste.insert(*t, *wst);
+                        }
+                        Some(old) => {
+                            *old += *wst;
+                        }
                     };
                 }
             }
@@ -724,8 +846,10 @@ impl TDBP {
                     ld_incr = (t - prev_point.0) * prev_els.0;
                     wst_incr = (t - prev_point.0) * prev_els.1;
                 }
-                self.stats.agg_data.insert(*t, (prev_point.1.0 + ld_incr, prev_point.1.1 + wst_incr));
-                prev_point = (*t, (prev_point.1.0 + ld_incr, prev_point.1.1 + wst_incr));
+                self.stats
+                    .agg_data
+                    .insert(*t, (prev_point.1 .0 + ld_incr, prev_point.1 .1 + wst_incr));
+                prev_point = (*t, (prev_point.1 .0 + ld_incr, prev_point.1 .1 + wst_incr));
                 prev_els = (*ld, *wst);
             }
             idx += 1;
@@ -733,13 +857,32 @@ impl TDBP {
     }
 
     pub fn report(&self) {
-        println!("Makespan (in pages): {}", self.stats.makespan / utils::PAGE_SIZE);
+        println!(
+            "Makespan (in pages): {}",
+            self.stats.makespan / utils::PAGE_SIZE
+        );
         println!("Max object size: {} bytes", self.stats.max_size);
-        println!("Max load: {} bytes at t = {}", self.stats.max_load().1, self.stats.max_load().0);
-        println!("Overall agg frag: {:.3}", self.stats.frag_at_t(*self.stats.time.last().unwrap()).1);
-        println!("Agg frag at max load: {:.3}", self.stats.frag_at_t(self.stats.max_load_t).1);
-        println!("Running frag at max load: {:.3}", self.stats.frag_at_t(self.stats.max_load_t).0);
-        println!("Makespan vs. LOAD: {:.3}%", self.stats.makespan as f64 / self.stats.max_load().1 as f64 * 100.0);
+        println!(
+            "Max load: {} bytes at t = {}",
+            self.stats.max_load().1,
+            self.stats.max_load().0
+        );
+        println!(
+            "Overall agg frag: {:.3}",
+            self.stats.frag_at_t(*self.stats.time.last().unwrap()).1
+        );
+        println!(
+            "Agg frag at max load: {:.3}",
+            self.stats.frag_at_t(self.stats.max_load_t).1
+        );
+        println!(
+            "Running frag at max load: {:.3}",
+            self.stats.frag_at_t(self.stats.max_load_t).0
+        );
+        println!(
+            "Makespan vs. LOAD: {:.3}%",
+            self.stats.makespan as f64 / self.stats.max_load().1 as f64 * 100.0
+        );
     }
 }
 
@@ -748,7 +891,7 @@ impl TDBP {
 enum JobRole {
     Init,
     Add,
-    Retire
+    Retire,
 }
 
 // Used in the context of fragmentation. See below.
@@ -756,7 +899,7 @@ enum JobRole {
 enum Position {
     Top,
     Mid,
-    Bottom
+    Bottom,
 }
 
 // Here's how we compute fragmentation: we traverse all of
@@ -769,10 +912,10 @@ enum Position {
 // the middle or the bottom of our running state.
 #[derive(Debug, Clone, Copy)]
 struct Event<'o> {
-    job:    &'o Object,
-    role:   JobRole,
-    pos:    Option<Position>,
-    time:   usize
+    job: &'o Object,
+    role: JobRole,
+    pos: Option<Position>,
+    time: usize,
 }
 
 impl<'o> Event<'o> {
@@ -781,14 +924,21 @@ impl<'o> Event<'o> {
             job,
             role: JobRole::Init,
             pos: None,
-            time: 0
+            time: 0,
         };
 
         if !(state.live.is_empty() && is_birth) {
             // Else the result is ready.
-            if state.live.is_empty() { panic!("Job wanted to be retired from Empty Area."); }
-            if is_birth { res.role = JobRole::Add; res.time = job.birth; } 
-            else { res.role = JobRole::Retire; res.time = job.death }
+            if state.live.is_empty() {
+                panic!("Job wanted to be retired from Empty Area.");
+            }
+            if is_birth {
+                res.role = JobRole::Add;
+                res.time = job.birth;
+            } else {
+                res.role = JobRole::Retire;
+                res.time = job.death
+            }
             let h = state.live.last_key_value().unwrap().1;
             if job.home.offset >= h.home.offset {
                 res.pos = Some(Position::Top);
@@ -805,20 +955,20 @@ impl<'o> Event<'o> {
 
 // This is the running state of fragmentation calculation.
 struct Area<'o> {
-    live:               BTreeMap<usize, &'o Object>,
-    add_space:          (usize, usize),
-    prev_point:         usize,
-    run_waste:          usize,
-    run_load:           usize,
+    live: BTreeMap<usize, &'o Object>,
+    add_space: (usize, usize),
+    prev_point: usize,
+    run_waste: usize,
+    run_load: usize,
 }
 
 impl<'o> Area<'o> {
     fn new() -> Self {
-        Self { 
+        Self {
             add_space: (0, 0),
             live: BTreeMap::new(),
             prev_point: 0,
-            // Amoung of live memory.
+            // Amount of live memory.
             run_load: 0,
             // Amount of live gaps.
             run_waste: 0,
@@ -826,12 +976,20 @@ impl<'o> Area<'o> {
     }
 
     fn makespan(&self) -> usize {
-        self.add_space.1 - self.add_space.0 + 1
+        // Traditionally, the makespan equals to the size
+        // of the address space used. So we only care about
+        // the high end of the address space.
+        //
+        // My older self was not cognizant of this, and was
+        // adjusting it based on the "running" address space
+        // endpoints.
+        //self.add_space.1 - self.add_space.0 + 1
+        self.add_space.1 + 1
     }
 
     fn update(&mut self, stats: &mut WorkloadStats, evt: Event<'o>) {
         match evt.role {
-            JobRole::Init   => {
+            JobRole::Init => {
                 // Jobs are considered dead at their limits.
                 stats.running_load.insert(evt.time, 0);
                 stats.running_load.insert(evt.time + 1, evt.job.size());
@@ -848,17 +1006,20 @@ impl<'o> Area<'o> {
                 if let Some(existing) = self.live.insert(evt.job.offset(), evt.job) {
                     panic!("Already processed object {:?} temporally AND spatially overlaps with currently processed object {:?}!", existing, evt.job);
                 }
-            },
-            JobRole::Add    => {
+            }
+            JobRole::Add => {
                 stats.running_load.insert(evt.time, self.run_load);
                 self.run_load += evt.job.size();
                 stats.running_load.insert(evt.time + 1, self.run_load);
                 match evt.pos {
-                    Some(Position::Bottom)    => {
+                    Some(Position::Bottom) => {
                         let curr_bottom = self.live.first_key_value().unwrap().1;
                         let mut waste_incr = evt.job.page_local_offset();
                         if evt.job.gap_same_page(*curr_bottom) {
-                            self.run_waste = self.run_waste.checked_sub(curr_bottom.page_local_offset()).unwrap();
+                            self.run_waste = self
+                                .run_waste
+                                .checked_sub(curr_bottom.page_local_offset())
+                                .unwrap();
                             waste_incr += evt.job.gap(*curr_bottom);
                         }
                         stats.running_waste.insert(evt.time, self.run_waste);
@@ -868,7 +1029,7 @@ impl<'o> Area<'o> {
                         if let Some(existing) = self.live.insert(evt.job.offset(), evt.job) {
                             panic!("Already processed object {:?} temporally AND spatially overlaps with currently processed object {:?}!", existing, evt.job);
                         }
-                    },
+                    }
                     Some(Position::Mid) => {
                         if let Some(existing) = self.live.insert(evt.job.offset(), evt.job) {
                             panic!("Already processed object {:?} temporally AND spatially overlaps with currently processed object {:?}!", existing, evt.job);
@@ -877,7 +1038,7 @@ impl<'o> Area<'o> {
                         let waste_incr = self.get_waste_core();
                         self.run_waste = waste_incr;
                         stats.running_waste.insert(evt.time + 1, self.run_waste);
-                    },
+                    }
                     Some(Position::Top) => {
                         stats.running_waste.insert(evt.time, self.run_waste);
                         let highest_job = self.live.last_key_value().unwrap().1;
@@ -892,37 +1053,55 @@ impl<'o> Area<'o> {
                         if let Some(existing) = self.live.insert(evt.job.offset(), evt.job) {
                             panic!("Already processed object {:?} temporally AND spatially overlaps with currently processed object {:?}!", existing, evt.job);
                         }
-                    },
-                    None    => { panic!("Cannot add None pos-job"); }
+                    }
+                    None => {
+                        panic!("Cannot add None pos-job");
+                    }
                 };
-            },
+            }
             JobRole::Retire => {
                 self.run_load -= evt.job.size();
                 match stats.running_load.get_mut(&evt.time) {
-                    None    => { stats.running_load.insert(evt.time, self.run_load); },
-                    Some(existing_v) => { *existing_v = (*existing_v).min(self.run_load); }
+                    None => {
+                        stats.running_load.insert(evt.time, self.run_load);
+                    }
+                    Some(existing_v) => {
+                        *existing_v = (*existing_v).min(self.run_load);
+                    }
                 }
                 match evt.pos {
-                    Some(Position::Bottom)  => {
+                    Some(Position::Bottom) => {
                         let evict = self.live.pop_first().unwrap().1;
-                        assert_eq!(evt.job, evict, "{:?} came dressed as retired bottom, but real bottom is {:?}", evt.job, evict);
+                        assert_eq!(
+                            evt.job, evict,
+                            "{:?} came dressed as retired bottom, but real bottom is {:?}",
+                            evt.job, evict
+                        );
                         if self.live.len() == 0 {
                             self.run_waste = 0;
                         } else {
                             let new_guy = self.live.first_key_value().unwrap().1;
                             // First, subtract the bottom's contributions--both ways.
-                            self.run_waste = self.run_waste.checked_sub(evict.page_local_offset()).unwrap();
+                            self.run_waste = self
+                                .run_waste
+                                .checked_sub(evict.page_local_offset())
+                                .unwrap();
                             if evict.gap_same_page(*new_guy) {
-                                self.run_waste = self.run_waste.checked_sub(evict.gap(new_guy)).unwrap();
+                                self.run_waste =
+                                    self.run_waste.checked_sub(evict.gap(new_guy)).unwrap();
                                 self.run_waste += new_guy.page_local_offset();
                             }
                             self.add_space.0 = new_guy.page_start_bottom();
                         }
                         match stats.running_waste.get_mut(&evt.time) {
-                            None    => { stats.running_waste.insert(evt.time, self.run_waste); },
-                            Some(existing_v) => { *existing_v = (*existing_v).min(self.run_waste); }
+                            None => {
+                                stats.running_waste.insert(evt.time, self.run_waste);
+                            }
+                            Some(existing_v) => {
+                                *existing_v = (*existing_v).min(self.run_waste);
+                            }
                         }
-                    },
+                    }
                     Some(Position::Mid) => {
                         if let None = self.live.remove(&evt.job.home.offset) {
                             panic!("Retirement faild!");
@@ -930,46 +1109,70 @@ impl<'o> Area<'o> {
                         let waste_incr = self.get_waste_core();
                         self.run_waste = waste_incr;
                         match stats.running_waste.get_mut(&evt.time) {
-                            None    => { stats.running_waste.insert(evt.time, self.run_waste); },
-                            Some(existing_v) => { *existing_v = (*existing_v).min(self.run_waste); }
+                            None => {
+                                stats.running_waste.insert(evt.time, self.run_waste);
+                            }
+                            Some(existing_v) => {
+                                *existing_v = (*existing_v).min(self.run_waste);
+                            }
                         }
-                    },
+                    }
                     Some(Position::Top) => {
                         let evict = self.live.pop_last().unwrap().1;
-                        assert_eq!(evt.job, evict, "{:?} came dressed as retired top, but real bottom is {:?}", evt.job, evict);
+                        assert_eq!(
+                            evt.job, evict,
+                            "{:?} came dressed as retired top, but real bottom is {:?}",
+                            evt.job, evict
+                        );
                         if self.live.len() == 0 {
                             self.run_waste = 0;
                         } else {
                             let new_guy = self.live.last_key_value().unwrap().1;
                             if new_guy.gap_same_page(evict) {
-                                self.run_waste = self.run_waste.checked_sub(evict.gap(new_guy)).unwrap();
+                                self.run_waste =
+                                    self.run_waste.checked_sub(evict.gap(new_guy)).unwrap();
                             } else {
-                                self.run_waste = self.run_waste.checked_sub(evict.page_local_offset()).unwrap();
+                                self.run_waste = self
+                                    .run_waste
+                                    .checked_sub(evict.page_local_offset())
+                                    .unwrap();
                             }
                             self.add_space.1 = new_guy.page_end_top();
                         }
                         match stats.running_waste.get_mut(&evt.time) {
-                            None    => { stats.running_waste.insert(evt.time, self.run_waste); },
-                            Some(existing_v) => { *existing_v = (*existing_v).min(self.run_waste); }
+                            None => {
+                                stats.running_waste.insert(evt.time, self.run_waste);
+                            }
+                            Some(existing_v) => {
+                                *existing_v = (*existing_v).min(self.run_waste);
+                            }
                         }
-                    },
-                    None    => { panic!("Cannot retire None pos-job"); }
+                    }
+                    None => {
+                        panic!("Cannot retire None pos-job");
+                    }
                 }
-            },
+            }
         }
         self.prev_point = evt.time;
-        if self.makespan() > stats.makespan { stats.makespan = self.makespan(); }
+        if self.makespan() > stats.makespan {
+            stats.makespan = self.makespan();
+        }
     }
 
     fn get_waste_core(&mut self) -> usize {
         let mut res: usize = 0;
         let mut runner = self.add_space.0;
-        
+
         for (_, j) in &self.live {
             let test = j.runner_gap(runner);
             match test {
-                Some(same_page_diff)    => { res += same_page_diff; },
-                None    => { res += j.page_local_offset(); }
+                Some(same_page_diff) => {
+                    res += same_page_diff;
+                }
+                None => {
+                    res += j.page_local_offset();
+                }
             };
             runner = j.next_avail_add();
         }
@@ -993,7 +1196,9 @@ impl<'o> Area<'o> {
         for j in jobs {
             // We first must account for any events (i.e. deaths) that happen earlier.
             while let Some(p) = future_refs.peek() {
-                if j.birth < p.1 { break; }
+                if j.birth < p.1 {
+                    break;
+                }
                 let key = future_refs.pop().unwrap();
                 let evt = Event::new(area.live.get(&key.2).unwrap(), &area, false);
                 if !res.time.contains(&evt.job.death) {
@@ -1042,7 +1247,7 @@ impl RefPoint {
 // are no ties).
 impl Ord for RefPoint {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.1.cmp(&self.1).then_with(|| { self.2.cmp(&other.2) })
+        other.1.cmp(&self.1).then_with(|| self.2.cmp(&other.2))
     }
 }
 
@@ -1057,10 +1262,10 @@ mod utils {
 }
 
 pub mod plot {
+    use super::{Object, TDBP};
     use plotters::prelude::*;
-    use super::{TDBP, Object};
-    use std::path::Path;
     use std::fs::create_dir;
+    use std::path::Path;
 
     pub fn plot_mappings(m: &TDBP, f: &Path) {
         let file_name = f.file_stem().unwrap();
@@ -1074,16 +1279,20 @@ pub mod plot {
             let backend = backend.margin(10u32, 10u32, 10u32, 10u32);
 
             let mut chart = ChartBuilder::on(&backend)
-                                .x_label_area_size(20u32)
-                                .y_label_area_size(60u32)
-                                .build_cartesian_2d(mapn.time_endpoints.0..mapn.time_endpoints.1 + 1,
-                                            mapn.address_space.0..mapn.address_space.1 + 1).unwrap();
+                .x_label_area_size(20u32)
+                .y_label_area_size(60u32)
+                .build_cartesian_2d(
+                    mapn.time_endpoints.0..mapn.time_endpoints.1 + 1,
+                    mapn.address_space.0..mapn.address_space.1 + 1,
+                )
+                .unwrap();
 
             chart
                 .configure_mesh()
                 .x_labels(10)
                 .y_labels(10)
-                .draw().unwrap();
+                .draw()
+                .unwrap();
 
             chart.draw_series(create_series(&mapn.objects)).unwrap();
         }
@@ -1097,14 +1306,13 @@ pub mod plot {
             let right_x = job.death;
             let lower_y = job.home.offset;
             let upper_y = job.next_avail_add();
-            jobs_result.push(Rectangle::new([
-                (left_x, upper_y),
-                (right_x, lower_y)],
+            jobs_result.push(Rectangle::new(
+                [(left_x, upper_y), (right_x, lower_y)],
                 ShapeStyle {
                     color: BLACK.into(),
                     filled: false,
                     stroke_width: 1,
-                }
+                },
             ));
         }
 
