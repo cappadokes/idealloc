@@ -1,35 +1,38 @@
+use crate::elements::{InterferenceGraph, Job, JobSet, LiveSet};
 pub use anyhow::{Error, Result};
-use indexmap::IndexMap;
-pub use std::collections::{BTreeMap, BinaryHeap};
-use crate::elements::{Job, JobSet, LiveSet, RandPoint};
+use indexmap::{IndexMap, IndexSet};
+pub use std::collections::{HashSet, BTreeMap, BinaryHeap};
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct HeapStats {
-    pub running_load:   Option<BTreeMap<usize, usize>>,
-    pub max_load:   Option<(usize, usize)>,
+    pub running_load: Option<BTreeMap<usize, usize>>,
+    pub max_load: Option<(usize, usize)>,
     pub max_height: Option<usize>,
     pub min_height: Option<usize>,
     // For used w/ bounding intervals of T2. Contains
     // smallest birth, largest death time.
-    pub horizon:    Option<(usize, usize)>
+    pub horizon: Option<(usize, usize)>,
 }
 
 impl HeapStats {
     #[inline]
     pub fn new() -> Self {
-        Self {  running_load:   None,
-                max_load:       None,
-                max_height:     None,
-                min_height:     None,
-                horizon:        None
+        Self {
+            running_load: None,
+            max_load: None,
+            max_height: None,
+            min_height: None,
+            horizon: None,
         }
     }
 
     #[inline]
     fn push_load(&mut self, k: usize, val: usize) {
         match self.running_load {
-            None    => { panic!("Bad traversal."); },
+            None => {
+                panic!("Bad traversal.");
+            }
             Some(ref mut v) => {
                 v.insert(k, val);
             }
@@ -41,13 +44,13 @@ impl HeapStats {
 enum JobRole {
     Init,
     Add,
-    Retire
+    Retire,
 }
 
 pub struct Event {
-    job:    Rc<Job>,
-    role:   JobRole,
-    time:   usize
+    job: Rc<Job>,
+    role: JobRole,
+    time: usize,
 }
 
 impl Event {
@@ -56,14 +59,23 @@ impl Event {
         let mut res = Self {
             job: job.clone(),
             role: JobRole::Init,
-            time: if is_birth { job.birth.get() } else { job.death.get() }
+            time: if is_birth {
+                job.birth.get()
+            } else {
+                job.death.get()
+            },
         };
 
         if !(state.live.is_empty() && is_birth) {
             // Else the result is ready.
-            if state.live.is_empty() { panic!("Job wanted to be retired from Empty Area."); }
-            if is_birth { res.role = JobRole::Add; } 
-            else { res.role = JobRole::Retire; }
+            if state.live.is_empty() {
+                panic!("Job wanted to be retired from Empty Area.");
+            }
+            if is_birth {
+                res.role = JobRole::Add;
+            } else {
+                res.role = JobRole::Retire;
+            }
         }
 
         res
@@ -71,15 +83,15 @@ impl Event {
 }
 
 pub struct Area {
-    live:               BTreeMap<usize, Rc<Job>>,
-    prev_point:         usize,
-    run_load:           usize,
+    live: BTreeMap<usize, Rc<Job>>,
+    prev_point: usize,
+    run_load: usize,
 }
 
 impl Area {
     #[inline]
     pub fn new() -> Self {
-        Self { 
+        Self {
             live: BTreeMap::new(),
             prev_point: 0,
             // Amoung of live memory.
@@ -89,7 +101,7 @@ impl Area {
 
     pub fn update(&mut self, stats: &mut HeapStats, evt: Event) {
         match evt.role {
-            JobRole::Init   => {
+            JobRole::Init => {
                 // Jobs are considered dead at their limits.
                 stats.push_load(evt.time, 0);
                 stats.push_load(evt.time + 1, evt.job.size());
@@ -98,8 +110,8 @@ impl Area {
                     stats.max_load = Some((evt.time + 1, self.run_load));
                 }
                 self.live.insert(evt.job.id.get(), evt.job.clone());
-            },
-            JobRole::Add    => {
+            }
+            JobRole::Add => {
                 stats.push_load(evt.time, self.run_load);
                 self.run_load += evt.job.size();
                 stats.push_load(evt.time + 1, self.run_load);
@@ -107,27 +119,31 @@ impl Area {
                     stats.max_load = Some((evt.time + 1, self.run_load));
                 }
                 self.live.insert(evt.job.id.get(), evt.job.clone());
-            },
+            }
             JobRole::Retire => {
                 self.run_load -= evt.job.size();
                 match stats.running_load {
-                    None    => { panic!("Bad traversal.") },
-                    Some(ref mut v) => {
-                        match v.get_mut(&evt.time) {
-                            None    => { stats.push_load(evt.time, self.run_load); },
-                            Some(existing_v) => { *existing_v = (*existing_v).min(self.run_load); }
-                        }
+                    None => {
+                        panic!("Bad traversal.")
                     }
+                    Some(ref mut v) => match v.get_mut(&evt.time) {
+                        None => {
+                            stats.push_load(evt.time, self.run_load);
+                        }
+                        Some(existing_v) => {
+                            *existing_v = (*existing_v).min(self.run_load);
+                        }
+                    },
                 };
                 self.live.remove(&evt.job.id.get()).unwrap();
-            },
+            }
         }
         self.prev_point = evt.time;
     }
 
     pub fn igc_update(&mut self, state: &mut IGCCtrl, evt: Event) {
         match evt.role {
-            JobRole::Init   => {
+            JobRole::Init => {
                 let c: usize;
                 if !state.a.is_empty() {
                     c = state.a.pop().expect("Bad IGC.").0;
@@ -138,8 +154,8 @@ impl Area {
                 };
                 state.rows[c].insert(evt.job.id(), evt.job.clone());
                 self.live.insert(evt.job.id.get(), evt.job.clone());
-            },
-            JobRole::Add    => {
+            }
+            JobRole::Add => {
                 let c: usize;
                 if !state.a.is_empty() {
                     c = state.a.pop().expect("Bad IGC.").0;
@@ -150,13 +166,15 @@ impl Area {
                 };
                 state.rows[c].insert(evt.job.id(), evt.job.clone());
                 self.live.insert(evt.job.id.get(), evt.job.clone());
-            },
+            }
             JobRole::Retire => {
                 let mut rows_iter = state.rows.iter();
                 let mut row_num: usize = 0;
                 let c: usize = loop {
                     if let Some(m) = rows_iter.next() {
-                        if m.contains_key(&evt.job.id()) { break row_num; }
+                        if m.contains_key(&evt.job.id()) {
+                            break row_num;
+                        }
                     };
                     row_num += 1;
                 };
@@ -167,33 +185,63 @@ impl Area {
         self.prev_point = evt.time;
     }
 
-    pub fn rand_update(&mut self, points: &mut (Vec<RandPoint>, (usize, usize)), evt: Event) {
+    pub fn rand_update(&mut self, points: &mut (IndexSet<usize>, (usize, usize)), evt: Event) {
         match evt.role {
-            JobRole::Init   => {
+            JobRole::Init => {
                 self.live.insert(evt.job.id.get(), evt.job.clone());
-                if evt.time + 1 <= points.1.0 || evt.time + 1 >= points.1.1 { return; }
-                points.0.push(self.derive_point(evt.time + 1));
-            },
-            JobRole::Add    => {
+                if evt.time + 1 <= points.1 .0 || evt.time + 1 >= points.1 .1 {
+                    return;
+                }
+                if !points.0.contains(&(evt.time + 1)) {
+                    //points.0.insert(self.derive_point(evt.time + 1));
+                    points.0.insert(evt.time + 1);
+                }
+            }
+            JobRole::Add => {
                 self.live.insert(evt.job.id.get(), evt.job.clone());
-                if evt.time + 1 <= points.1.0 || evt.time + 1 >= points.1.1 { return; }
-                points.0.push(self.derive_point(evt.time + 1));
-            },
+                if evt.time + 1 <= points.1 .0 || evt.time + 1 >= points.1 .1 {
+                    return;
+                }
+                if !points.0.contains(&(evt.time + 1)) {
+                    points.0.insert(evt.time + 1);
+                }
+            }
             JobRole::Retire => {
                 self.live.remove(&evt.job.id.get()).unwrap();
+                if !points.0.contains(&(evt.time + 1))
+                    && self.live
+                    .values()
+                    .any(|j| { j.is_live_at(evt.time + 1) }) {
+                        points.0.insert(evt.time + 1);
+                }
             }
         }
         self.prev_point = evt.time;
     }
 
-    #[inline]
-    fn derive_point(&self, moment: usize) -> RandPoint {
-        let mut new_set = Vec::new();
-        for j in self.live.values() {
-            new_set.push(j.clone());
+    pub fn interference_update(&mut self, graph: &mut InterferenceGraph, evt: Event) {
+        match evt.role {
+            JobRole::Init => {
+                graph.insert(evt.job.id(), HashSet::new());
+                self.live.insert(evt.job.id.get(), evt.job.clone());
+            },
+            JobRole::Add => {
+                let mut this_node_set = HashSet::new();
+                for j in self.live.values() {
+                    this_node_set.insert(j.clone());
+                    graph.entry(j.id())
+                        .and_modify(|s| {
+                            s.insert(evt.job.clone());
+                        }
+                    );
+                }
+                graph.insert(evt.job.id(), this_node_set);
+                self.live.insert(evt.job.id.get(), evt.job.clone());
+            },
+            JobRole::Retire => {
+                self.live.remove(&evt.job.id.get()).unwrap();
+            },                        
         }
-
-        (new_set, moment)
     }
 
     // Traversal is arguably the most crucial operation
@@ -201,7 +249,9 @@ impl Area {
     // efficiently is the difference between a PhD and
     // no PhD. So let's do it well.
     pub fn traverse<T, F>(jobs: &JobSet, res: &mut T, func: F)
-        where F: Fn(&mut Self, &mut T, Event) {
+    where
+        F: Fn(&mut Self, &mut T, Event),
+    {
         let max_capacity = jobs.get_len();
         let mut area = Area::new();
         // Efficient live job book-keeping is key. We want to add
@@ -212,7 +262,9 @@ impl Area {
         for (_, j) in &jobs.contents {
             // We first must account for any events (i.e. deaths) that happen earlier.
             while let Some(p) = future_refs.peek() {
-                if j.birth.get() < p.1 { break; }
+                if j.birth.get() < p.1 {
+                    break;
+                }
                 let key = future_refs.pop().unwrap();
                 let evt = Event::new(area.live.get(&key.2).unwrap().clone(), &area, false);
                 func(&mut area, res, evt);
@@ -246,12 +298,15 @@ impl RefPoint {
 
 // The "crucial helper structure" mentioned above is
 // a BinaryHeap. We want it to be a min-heap on the deaths
-// of jobs, with tie breaks solved by job births (where there
-// are no ties).
+// of jobs, with tie breaks solved by job births, with subsequent
+// tie breaks solved by ID (where there can be no ties).
 impl Ord for RefPoint {
     #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.1.cmp(&self.1).then_with(|| { other.0.cmp(&self.0) })
+        other.1
+            .cmp(&self.1)
+            .then_with(|| other.0.cmp(&self.0))
+            .then_with(|| self.2.cmp(&other.2))
     }
 }
 
@@ -287,18 +342,18 @@ impl PartialOrd for RowNum {
 }
 
 pub struct IGCCtrl {
-    pub rows:   Vec<LiveSet>,
-    d:      usize,
-    a:      BinaryHeap<RowNum>
+    pub rows: Vec<LiveSet>,
+    d: usize,
+    a: BinaryHeap<RowNum>,
 }
 
 impl IGCCtrl {
     #[inline]
     pub fn new() -> Self {
         Self {
-            rows:   vec![],
-            d:      0,
-            a:      BinaryHeap::new()
+            rows: vec![],
+            d: 0,
+            a: BinaryHeap::new(),
         }
     }
 }

@@ -1,8 +1,19 @@
-use std::{cell::{Cell, RefCell}, cmp::Ordering, hash::BuildHasherDefault, rc::Rc};
-use indexmap::IndexMap;
+use crate::algo::{LilEGen, merge_livesets};
+use crate::utils::Area;
+use crate::place::{do_placement, tighten_placement, PlacedSet};
+pub use crate::io::{BufReader, BufWriter, Error, File, Read, Result};
 use ahash::AHasher;
-pub use crate::io::{BufReader, File, Read, Result, Error, BufWriter};
-use crate::algo::{do_placement, LilEGen, PlacedSet};
+use indexmap::{IndexMap, IndexSet};
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use std::time::Instant;
+use std::{
+    cell::{Cell, RefCell},
+    cmp::Ordering,
+    hash::BuildHasherDefault,
+    rc::Rc,
+    collections::BTreeMap
+};
 
 type Event = (Request, Option<(Rc<Job>, Option<Rc<Job>>)>);
 
@@ -11,47 +22,51 @@ type Event = (Request, Option<(Rc<Job>, Option<Rc<Job>>)>);
 /// as `usize`-length in the trace file.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ReqType {
-    Malloc          (usize),
-    Free            (usize),
-    Calloc          (usize, usize),
-    ReAlloc         (usize, usize),
-    AlignedAlloc    (usize, usize),
-    MemAlign        (usize, usize),
-    PosixMemAlign   (usize, usize, usize),
-    Done
+    Malloc(usize),
+    Free(usize),
+    Calloc(usize, usize),
+    ReAlloc(usize, usize),
+    AlignedAlloc(usize, usize),
+    MemAlign(usize, usize),
+    PosixMemAlign(usize, usize, usize),
+    Done,
 }
 
 impl ReqType {
     fn is_free(&self) -> bool {
         if let ReqType::Free(_) = self {
             true
-        } else { 
-            false 
+        } else {
+            false
         }
     }
 
     pub fn get_requested_size(&self) -> usize {
         match self {
-            ReqType::Malloc(s)  => { *s },
-            ReqType::Calloc(nobj, osize)    => {*nobj * *osize },
-            ReqType::ReAlloc(_, s)  => { *s },
-            ReqType::AlignedAlloc(_, s) => { * s},
-            ReqType::MemAlign(_, s) => { *s },
-            ReqType::PosixMemAlign(_, _, s) => { *s },
-            _   => { panic!("Requested size of non-allocation request."); }
+            ReqType::Malloc(s) => *s,
+            ReqType::Calloc(nobj, osize) => *nobj * *osize,
+            ReqType::ReAlloc(_, s) => *s,
+            ReqType::AlignedAlloc(_, s) => *s,
+            ReqType::MemAlign(_, s) => *s,
+            ReqType::PosixMemAlign(_, _, s) => *s,
+            _ => {
+                panic!("Requested size of non-allocation request.");
+            }
         }
     }
 
     pub fn get_sentinel(&self) -> u8 {
         match self {
-            ReqType::Malloc(_)  => { 0x05 },
-            ReqType::Free(_)    => { 0x12 },
-            ReqType::Calloc(_, _)   => { 0x26 },
-            ReqType::ReAlloc(_, _)  => { 0x36 },
-            ReqType::AlignedAlloc(_, _) => { 0x46 },
-            ReqType::MemAlign(_, _) => { 0x56 },
-            ReqType::PosixMemAlign(_, _, _) => { 0x67 },
-            ReqType::Done   => { panic!("Attempted to write Done req."); }
+            ReqType::Malloc(_) => 0x05,
+            ReqType::Free(_) => 0x12,
+            ReqType::Calloc(_, _) => 0x26,
+            ReqType::ReAlloc(_, _) => 0x36,
+            ReqType::AlignedAlloc(_, _) => 0x46,
+            ReqType::MemAlign(_, _) => 0x56,
+            ReqType::PosixMemAlign(_, _, _) => 0x67,
+            ReqType::Done => {
+                panic!("Attempted to write Done req.");
+            }
         }
     }
 }
@@ -76,16 +91,24 @@ pub struct Placement {
     // and has some alignment.
     pub offset:     Option<usize>,
     pub alignment:  usize,
-    pub req_size:   usize
+    pub req_size:   usize,
+    pub squeezed:   bool,
 }
 
 impl Placement {
-    pub fn new(heap: usize, o: usize, alignment: usize, req_size: usize) -> Self {
-        Self { 
-            heap, 
-            offset: Some(o), 
+    pub fn new(
+        heap:       usize, 
+        o:          usize, 
+        alignment:  usize, 
+        req_size:   usize,
+        squeezed:   bool,
+    ) -> Self {
+        Self {
+            heap,
+            offset:     Some(o),
             alignment,
-            req_size
+            req_size,
+            squeezed,
         }
     }
 }
@@ -108,17 +131,17 @@ fn compute_proper_size(cand: usize) -> usize {
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct Request {
     // Info held matches the TRACED data!
-    pub rtype:  ReqType,
-    pub tid:    usize
+    pub rtype: ReqType,
+    pub tid: usize,
 }
 
 impl Request {
-    fn new_from_plc(world: &mut World, plc_source: &mut BufReader<File>, diss: bool) -> Option<()> {
+    fn new_from_plc(world: &mut World, plc_source: &mut BufReader<File>, diss: bool) -> Option<usize> {
         const PLC_FIELDS_NUM: usize = 8;
         let mut buffer: [u8; 8 * PLC_FIELDS_NUM] = [0; 8 * PLC_FIELDS_NUM];
         let mut baby_job = Job::new();
         match plc_source.read_exact(&mut buffer) {
-            Ok(_)   => {
+            Ok(_) => {
                 let mut words_read = 0;
                 while words_read < PLC_FIELDS_NUM {
                     let mut word_buffer: [u8; 8] = [0; 8];
@@ -128,15 +151,33 @@ impl Request {
                     words_read += 1;
                     let data = usize::from_be_bytes(word_buffer);
                     match words_read {
-                        1   => { baby_job.id = Cell::new(data); },
-                        2   => { baby_job.birth = Cell::new(data); },
-                        3   => { baby_job.death = Cell::new(data); },
-                        4   => { baby_job.height = Cell::new((data, data)); },
-                        5   => { baby_job.home.get_mut().heap = data; },
-                        6   => { baby_job.home.get_mut().offset = Some(data); },
-                        7   => { baby_job.home.get_mut().alignment = data; },
-                        8   => { baby_job.home.get_mut().req_size = data; },
-                        _   => { panic!("Reached unreachable state!"); }
+                        1 => {
+                            baby_job.id = Cell::new(data);
+                        }
+                        2 => {
+                            baby_job.birth = Cell::new(data);
+                        }
+                        3 => {
+                            baby_job.death = Cell::new(data);
+                        }
+                        4 => {
+                            baby_job.height = Cell::new((data, data));
+                        }
+                        5 => {
+                            baby_job.home.get_mut().heap = data;
+                        }
+                        6 => {
+                            baby_job.home.get_mut().offset = Some(data);
+                        }
+                        7 => {
+                            baby_job.home.get_mut().alignment = data;
+                        }
+                        8 => {
+                            baby_job.home.get_mut().req_size = data;
+                        }
+                        _ => {
+                            panic!("Reached unreachable state!");
+                        }
                     }
                 }
                 baby_job.origin.set(baby_job.addr().unwrap());
@@ -150,32 +191,40 @@ impl Request {
                     world.all.insert_job(j.clone());
                 }
 
-                Some(())
-            },
-            Err(_)  => { None }
+                Some(j.id())
+            }
+            Err(_) => None,
         }
     }
     fn _is_useless(&self) -> bool {
         match self.rtype {
-            ReqType::Free(0)    => { true },
-            _                   => { false }
+            ReqType::Free(0) => true,
+            _ => false,
         }
     }
 
-    fn new_event(world: &mut World, trace: &mut BufReader<File>, running_id: &mut usize) -> Result<Event> {
+    fn new_event(
+        world: &mut World,
+        trace: &mut BufReader<File>,
+        running_id: &mut usize,
+    ) -> Result<Event> {
         //! Spawns a new event from a trace file.
         let mut sentinel: [u8; 1] = [0];
-        let mut baby_req = Self { rtype: ReqType::Done, tid: 0 };
+        let mut baby_req = Self {
+            rtype: ReqType::Done,
+            tid: 0,
+        };
         let mut baby_job = None;
         if let Ok(_) = trace.read_exact(&mut sentinel) {
-            if  sentinel[0] != 0x05 &&
-                sentinel[0] != 0x12 &&
-                sentinel[0] != 0x26 &&
-                sentinel[0] != 0x36 &&
-                sentinel[0] != 0x46 &&
-                sentinel[0] != 0x56 &&
-                sentinel[0] != 0x67 {
-                    return Err(Error::msg("Corrupted trace file."));
+            if sentinel[0] != 0x05
+                && sentinel[0] != 0x12
+                && sentinel[0] != 0x26
+                && sentinel[0] != 0x36
+                && sentinel[0] != 0x46
+                && sentinel[0] != 0x56
+                && sentinel[0] != 0x67
+            {
+                return Err(Error::msg("Corrupted trace file."));
             }
             let req_type = CODES[((sentinel[0] & 0b11110000u8) >> 4) as usize];
             baby_req.rtype = req_type;
@@ -185,140 +234,124 @@ impl Request {
             let mut i: u8 = 0;
             let mut tid: usize = 0;
             while i < words_left {
-                trace.read_exact(&mut word_buf).expect("Unexpected trace EOF");
+                trace
+                    .read_exact(&mut word_buf)
+                    .expect("Unexpected trace EOF");
                 let data = usize::from_be_bytes(word_buf);
                 if i == words_left - 2 && !req_type.is_free() {
                     tid = data;
                 }
                 match baby_req.rtype {
-                    ReqType::Malloc(ref mut size)  => {
-                        if i == 0 { 
-                            *size = data; 
-                            let got_alive = world.all
-                                .contents
-                                .get(running_id)
-                                .unwrap()
-                                .clone();
+                    ReqType::Malloc(ref mut size) => {
+                        if i == 0 {
+                            *size = data;
+                            let got_alive = world.all.contents.get(running_id).unwrap().clone();
                             *running_id += 1;
                             baby_job = Some((got_alive.clone(), None));
-                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive)
+                            {
                                 panic!("bababa");
                             }
                         }
-                    },
-                    ReqType::Calloc(ref mut nobj, ref mut size)  => {
-                        if i == 0 { 
-                            let got_alive = world.all
-                                .contents
-                                .get(running_id)
-                                .unwrap()
-                                .clone();
+                    }
+                    ReqType::Calloc(ref mut nobj, ref mut size) => {
+                        if i == 0 {
+                            let got_alive = world.all.contents.get(running_id).unwrap().clone();
                             *running_id += 1;
                             baby_job = Some((got_alive.clone(), None));
-                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive)
+                            {
                                 panic!("bababa");
                             }
-                            *nobj = data; 
+                            *nobj = data;
+                        } else if i == 1 {
+                            *size = data;
                         }
-                        else if i == 1 { *size = data; }
-                    },
-                    ReqType::ReAlloc(ref mut p, ref mut size)  => {
-                        if i == 0 { 
+                    }
+                    ReqType::ReAlloc(ref mut p, ref mut size) => {
+                        if i == 0 {
                             *p = data;
-                            let got_alive = world.all
-                                .contents
-                                .get(running_id)
-                                .unwrap()
-                                .clone();
+                            let got_alive = world.all.contents.get(running_id).unwrap().clone();
                             *running_id += 1;
                             baby_job = Some((got_alive.clone(), None));
                             if let Some((_, ref mut inner)) = baby_job {
                                 if *p != 0 {
-                                    *inner = Some(world.live
-                                    .remove(p)
-                                    .unwrap());
+                                    *inner = Some(world.live.remove(p).unwrap());
                                 }
                             };
-                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive)
+                            {
                                 panic!("bababa");
                             }
+                        } else if i == 1 {
+                            *size = data;
                         }
-                        else if i == 1 { *size = data; }
-                    },
+                    }
                     ReqType::AlignedAlloc(ref mut a, ref mut size) => {
-                        if i == 0 { 
-                            let got_alive = world.all
-                                .contents
-                                .get(running_id)
-                                .unwrap()
-                                .clone();
+                        if i == 0 {
+                            let got_alive = world.all.contents.get(running_id).unwrap().clone();
                             *running_id += 1;
                             baby_job = Some((got_alive.clone(), None));
-                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive)
+                            {
                                 panic!("bababa");
                             }
-                            *a = data; 
+                            *a = data;
+                        } else if i == 1 {
+                            *size = data;
                         }
-                        else if i == 1 { *size = data; }
-                    },
+                    }
                     ReqType::MemAlign(ref mut a, ref mut size) => {
-                        if i == 0 { 
-                            let got_alive = world.all
-                                .contents
-                                .get(running_id)
-                                .unwrap()
-                                .clone();
+                        if i == 0 {
+                            let got_alive = world.all.contents.get(running_id).unwrap().clone();
                             *running_id += 1;
                             baby_job = Some((got_alive.clone(), None));
-                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive)
+                            {
                                 panic!("bababa");
                             }
-                            *a = data; 
+                            *a = data;
+                        } else if i == 1 {
+                            *size = data;
                         }
-                        else if i == 1 { *size = data; }
-                    },
+                    }
                     ReqType::PosixMemAlign(ref mut p, ref mut a, ref mut size) => {
-                        if i == 0 { 
-                            *p = data; 
-                            let got_alive = world.all
-                                .contents
-                                .get(running_id)
-                                .unwrap()
-                                .clone();
+                        if i == 0 {
+                            *p = data;
+                            let got_alive = world.all.contents.get(running_id).unwrap().clone();
                             *running_id += 1;
                             baby_job = Some((got_alive.clone(), None));
-                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive) {
+                            if let Some(_) = world.live.insert(got_alive.addr().unwrap(), got_alive)
+                            {
                                 panic!("bababa");
                             }
                             if let Some((_, ref mut inner)) = baby_job {
-                                *inner = Some(world.live
-                                .get(p)
-                                .unwrap()
-                                .clone());
+                                *inner = Some(world.live.get(p).unwrap().clone());
                             };
+                        } else if i == 1 {
+                            *a = data;
+                        } else if i == 2 {
+                            *size = data;
                         }
-                        else if i == 1 { *a = data; }
-                        else if i == 2 { *size = data; }
-                    },
-                    ReqType::Free(ref mut p)   => {
-                        if i == 0 { 
-                            *p = data; 
+                    }
+                    ReqType::Free(ref mut p) => {
+                        if i == 0 {
+                            *p = data;
                             if *p != 0 {
-                                baby_job = Some((world.live
-                                    .remove(p)
-                                    .unwrap(), None));
+                                baby_job = Some((world.live.remove(p).unwrap(), None));
                             } else {
                                 baby_job = Some((Rc::new(Job::new()), None));
                             }
+                        } else {
+                            tid = data;
                         }
-                        else { tid = data; }
-                    },
-                    ReqType::Done   => {
+                    }
+                    ReqType::Done => {
                         return Err(Error::msg("Unreachable block reached."));
-                    },
+                    }
                 };
                 i += 1;
-            };
+            }
             baby_req.tid = tid;
         };
 
@@ -326,17 +359,20 @@ impl Request {
     }
 
     pub fn is_done(&self) -> bool {
-        if let ReqType::Done = self.rtype { true }
-        else { false }
+        if let ReqType::Done = self.rtype {
+            true
+        } else {
+            false
+        }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Eq)]
 pub struct Job {
     pub birth:      Cell<usize>,
     pub death:      Cell<usize>,
     // BA often downscales Jobs, and then upscales them to
-    // boxes with different size than the initial one. We 
+    // boxes with different size than the initial one. We
     // use 2 fields track which is the original, and which
     // the running size.
     pub height:     Cell<(usize, usize)>,
@@ -349,19 +385,20 @@ pub struct Job {
     pub origin:     Cell<usize>,
     pub just_boxes: Cell<bool>,
     pub just_jobs:  Cell<bool>,
-    pub overlappin: Cell<bool>
+    pub overlappin: Cell<bool>,
+    pub originals:  RefCell<OriginalsIn>,
 }
 
 // Used during tightening placements.
 impl Ord for Job {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        other.offset()
-            .cmp(&self.offset())
-            .then(other.next_avail_addr()
-                .cmp(&self.next_avail_addr()))
+        
+       self.offset()
+            .cmp(&other.offset())
+            .then(self.next_avail_addr().cmp(&other.next_avail_addr()))
             // Avoid "equal" jobs in traversed BTreeSet.
-            .then(other.id().cmp(&self.id()))
+            .then(self.id().cmp(&other.id()))
     }
 }
 
@@ -372,20 +409,34 @@ impl PartialOrd for Job {
     }
 }
 
+impl PartialEq for Job {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl Hash for Job {
+    fn hash<H>(&self, state: &mut H)
+        where H: Hasher {
+            self.id().hash(state);
+    }
+}
+
 impl Job {
     #[inline]
     pub fn new() -> Self {
         Self {
-            birth:      Cell::new(0),
-            death:      Cell::new(0),
-            height:     Cell::new((0, 0)),
-            id:         Cell::new(0),
-            home:       Cell::new(Placement::new(0, 0, 0, 0)),
-            contents:   RefCell::new(None),
-            origin:     Cell::new(0),
+            birth: Cell::new(0),
+            death: Cell::new(0),
+            height: Cell::new((0, 0)),
+            id: Cell::new(0),
+            home: Cell::new(Placement::new(0, 0, 0, 0, false)),
+            contents: RefCell::new(None),
+            origin: Cell::new(0),
             just_boxes: Cell::new(true),
-            just_jobs:  Cell::new(true),
-            overlappin: Cell::new(false)
+            just_jobs: Cell::new(true),
+            overlappin: Cell::new(false),
+            originals:  RefCell::new(HashSet::default())
         }
     }
 
@@ -393,17 +444,22 @@ impl Job {
     pub fn addr(&self) -> Result<usize> {
         if let Some(o) = self.home.get().offset {
             Ok(self.home.get().heap + o)
-        } else { Err(Error::msg("Tried to retrieve address of unplaced job.")) }
+        } else {
+            Err(Error::msg("Tried to retrieve address of unplaced job."))
+        }
     }
 
     pub fn unplace(&self) {
         let mut current_placement = self.home.get();
         current_placement.offset = None;
+        current_placement.squeezed = false;
         self.home.set(current_placement);
     }
 
     #[inline]
-    pub fn id(&self) -> usize { self.id.get() }
+    pub fn id(&self) -> usize {
+        self.id.get()
+    }
 }
 
 use crate::utils::HeapStats;
@@ -419,10 +475,167 @@ pub struct JobSet {
     pub jobs_boxed: usize,
     pub just_boxes: bool,
     pub just_jobs:  bool,
-    pub overlappin: bool
+    pub overlappin: bool,
 }
 
 impl JobSet {
+    #[inline]
+    pub fn get_id_set(&self) -> IndexSet<usize> {
+        let mut res = IndexSet::new();
+        self.contents
+            .values()
+            .for_each(|job| {
+                assert!(res.insert(job.id()))
+            });
+
+        res
+    }
+
+    #[inline]
+    pub fn make_clone(&self, contents: LiveSet) -> Self {
+        let mut res = Self::new();
+        res.init(contents, self.jobs_boxed, self.next_id, false);
+
+        res
+    }
+
+    #[inline]
+    fn init(&mut self, contents: LiveSet, boxed: usize, id: usize, do_sort: bool) {
+        self.contents = contents;
+        self.jobs_boxed = boxed;
+        self.next_id = id;
+        self.stats = HeapStats::new();
+        if do_sort {
+            self.sort_inc_birth();
+        }
+    }
+
+    #[inline]
+    pub fn sort_inc_birth(&mut self) {
+        self.contents
+            .sort_unstable_by(|_, a, _, b| a.birth.get().cmp(&b.birth.get()));
+    }
+
+    #[inline]
+    pub fn sort_dec_death(&mut self) {
+        self.contents
+            .sort_unstable_by(|_, a, _, b| b.death.get().cmp(&a.death.get()));
+    }
+
+    pub fn partition_by<F>(self, comp_func: F, do_sort: bool) -> (JobSet, JobSet)
+    where
+        F: Fn(&Rc<Job>) -> bool,
+    {
+        // Partitioning JobSets is a very common operation. At least 2
+        // different criteria are used: in one case, we want to isolate
+        // jobs that are up to a certain size. In another case, we want
+        // to differentiate between jobs that are live at some specific
+        // point in time.
+        //
+        // To save code, we use a closure for the comparison each time.
+        // It's important to remember that JOBS FOR WHICH THE COMPARISON
+        // WAS SUCCESSFUL GO TO THE LEFT SPAWNED JOBSET. The rest go to
+        // the right.
+        let boxed = self.jobs_boxed;
+        let next_id = self.next_id;
+        let (smaller, higher): (LiveSet, LiveSet) =
+            self.contents.into_iter().partition(|(_, j)| comp_func(j));
+        let (mut smaller_jobs, mut higher_jobs) = (JobSet::new(), JobSet::new());
+
+        smaller_jobs.init(smaller, boxed, next_id, do_sort);
+        higher_jobs.init(higher, boxed, next_id, do_sort);
+
+        (smaller_jobs, higher_jobs)
+    }
+
+    pub fn max_load(&mut self) -> (usize, usize) {
+        match self.stats.max_load {
+            Some(v) => v,
+            None => {
+                let mut res = HeapStats::new();
+                res.running_load = Some(BTreeMap::default());
+                res.max_load = Some((0, 0));
+                self.sort_inc_birth();
+                Area::traverse(self, &mut res, Area::update);
+                self.stats.running_load = res.running_load;
+                self.stats.max_load = res.max_load;
+
+                res.max_load.unwrap()
+            }
+        }
+    }
+
+    pub fn _load_at_t(&mut self, t: usize) -> usize {
+        match self.stats.running_load {
+            Some(ref mut v) => *v.get(&t).expect("Bad l(t) request."),
+            None => {
+                let mut res = HeapStats::new();
+                res.running_load = Some(BTreeMap::default());
+                res.max_load = Some((0, 0));
+                Area::traverse(self, &mut res, Area::update);
+                self.stats.running_load = res.running_load;
+                self.stats.max_load = res.max_load;
+
+                *self
+                    .stats
+                    .running_load
+                    .as_ref()
+                    .unwrap()
+                    .get(&t)
+                    .expect("Bad l(t) request.")
+            }
+        }
+    }
+
+    #[inline]
+    pub fn min_max_height(&mut self) -> (usize, usize) {
+        match self.stats.min_height {
+            None => {
+                let mut min_res = usize::MAX;
+                let mut max_res = 0;
+
+                for j in self.contents.values() {
+                    let test = j.size();
+                    if test > max_res {
+                        max_res = test;
+                    }
+                    if test < min_res {
+                        min_res = test;
+                    }
+                }
+
+                self.stats.min_height = Some(min_res);
+                self.stats.max_height = Some(max_res);
+
+                (min_res, max_res)
+            }
+            Some(v) => (v, self.stats.max_height.unwrap()),
+        }
+    }
+
+    pub fn merge_with(self, other: JobSet, other_has_memory: bool, do_sort: bool) -> JobSet {
+        let boxed = if !other_has_memory {
+            self.jobs_boxed + other.jobs_boxed
+        } else {
+            other.jobs_boxed
+        };
+        let id: usize;
+        if other.next_id > self.next_id {
+            id = other.next_id;
+        } else {
+            id = self.next_id;
+        }
+        let mut res = JobSet::new();
+        res.init(
+            merge_livesets(self.contents, other.contents),
+            boxed,
+            id,
+            do_sort,
+        );
+
+        res
+    }
+
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -431,9 +644,9 @@ impl JobSet {
             next_id: 0,
             jobs_boxed: 0,
             just_boxes: true,
-            just_jobs:  true,
-            overlappin: false
-         }
+            just_jobs: true,
+            overlappin: false,
+        }
     }
 
     #[inline]
@@ -454,30 +667,37 @@ impl JobSet {
     }
 }
 
-pub type LiveSet    = IndexMap<usize, Rc<Job>, BuildHasherDefault<AHasher>>;
-pub type HeapSet    = IndexMap<usize, JobSet, BuildHasherDefault<AHasher>>;
-pub type AddrSet    = IndexMap<usize, usize, BuildHasherDefault<AHasher>>;
+pub type LiveSet            = IndexMap<usize, Rc<Job>, BuildHasherDefault<AHasher>>;
+pub type HeapSet            = IndexMap<usize, JobSet, BuildHasherDefault<AHasher>>;
+pub type AddrSet            = IndexMap<usize, usize, BuildHasherDefault<AHasher>>;
+pub type OriginalsIn        = HashSet<Rc<Job>, BuildHasherDefault<AHasher>>;
+pub type InterferenceGraph  = IndexMap<usize, HashSet<Rc<Job>>, BuildHasherDefault<AHasher>>;
+
+use crate::mcts::{MCTSPolicy, RandTameLogic};
 
 pub struct World {
-    pub next_id:    usize,
+    pub next_id: usize,
     // Indexed by address, used during trace parsing.
     live:           LiveSet,
     events:         Vec<Event>,
     // Indexed by ID, used in core part.
     all:            JobSet,
     best_addresses: AddrSet,
-    magic:          RandTameLogic
+    magic:          RandTameLogic,
+    num_trials:     usize,
 }
 
+use crate::io::Config;
 impl World {
-    pub fn new() -> Self {
+    pub fn new(c: &Config) -> Self {
         Self {
             next_id:        0,
             live:           IndexMap::default(),
             events:         vec![],
             all:            JobSet::new(),
             best_addresses: IndexMap::default(),
-            magic:          RandTameLogic::new()
+            magic:          RandTameLogic::new(c.mcts),
+            num_trials:     c.trials,
         }
     }
 
@@ -504,22 +724,29 @@ impl World {
 
         self.live.clear();
         for (r, j) in self.events {
-            crate::io::update_trace(&mut writer, r, j,&self.best_addresses)?;
+            crate::io::update_trace(&mut writer, r, j, &self.best_addresses)?;
         }
 
         Ok(())
     }
 
-    pub fn populate(&mut self, mut plc: BufReader<File>, diss: bool, maybe_trc: Option<BufReader<File>>) -> Result<()> {
+    pub fn populate(
+        &mut self,
+        mut c:  Config,
+    ) -> Result<()> {
         // We want to tie PLC jobs to requests.
-        while let Some(_) = Request::new_from_plc(self, &mut plc, diss) {
-            self.next_id += 1;
+        let mut max_id_found = 0;
+        while let Some(last_id) = Request::new_from_plc(self, &mut c.plc, c.diss) {
+            if last_id > max_id_found {
+                max_id_found = last_id;
+                self.next_id = max_id_found + 1;
+            }
         }
-        if let Some(mut trace) = maybe_trc {
+        if let Some(mut trace) = c.maybe_trc {
             let mut running_id = 0;
             loop {
                 let (req, job) = Request::new_event(self, &mut trace, &mut running_id)?;
-                if req.is_done() { 
+                if req.is_done() {
                     break;
                 }
                 self.events.push((req, job));
@@ -538,8 +765,10 @@ impl World {
             j.unplace();
             let key = j.home.get().heap;
             match heaps.get_mut(&key) {
-                Some(set)   => { set.insert_job(j.clone()); },
-                None    => {
+                Some(set) => {
+                    set.insert_job(j.clone());
+                }
+                None => {
                     let mut to_insert: JobSet = JobSet::new();
                     to_insert.insert_job(j.clone());
                     heaps.insert(key, to_insert);
@@ -556,29 +785,42 @@ impl World {
         for (base_address, mut contents) in self.prepare_heaps() {
             contents.next_id = self.next_id;
             // In case BA fails.
-            let backup = contents.clone();
-            println!("{} ({} jobs): (t_m, max_load) = {:?}, (h_min, h_max) = {:?}", base_address, contents.get_len(), contents.max_load(), contents.min_max_height());
+            let mut backup = contents.clone();
+            println!(
+                "{} ({} jobs): (t_m, max_load) = {:?}, (h_min, h_max) = {:?}",
+                base_address,
+                contents.get_len(),
+                contents.max_load(),
+                contents.min_max_height()
+            );
             let mut best_makespan = usize::MAX;
-            const NUM_TRIALS: usize = 5;
+            if contents.get_len() > 20_000 {
+                // Our state costs too much memory for big cases.
+                // We don't do any Monte Carlo for those.
+                self.magic.set_policy(MCTSPolicy::Madman);
+            }
+            self.magic.set_bound(contents.max_load().1 as f64);
+            //self.magic.init_state(&backup);
             let mut done = 0;
-            while done < NUM_TRIALS {
+            // Error parameter initialized via Corollary 17.
+            let mut e = LilEGen::new(&mut contents);
+            let out_now = Instant::now();
+            while done < self.num_trials {
                 contents = backup.clone();
                 contents.restore_heights();
-                // Error parameter initialized via Corollary 17.
-                let mut e = LilEGen::new(&mut contents);
+                let mut now: Instant;
                 let ready = loop {
                     // 2 possible outcomes exist:
                     // (i) BA has boxed ALL jobs
                     // (ii)BA hasn't done (i)
-                    self.magic.current.set(RandTensor::new());
-                    self.magic.dims = (0, 0, 0, 0, 0);
+                    now = Instant::now();
                     match contents.t_16(e.val, &mut self.magic) {
-                        Ok(mut all_boxed)   => { 
+                        Ok(mut all_boxed) => {
                             self.next_id = all_boxed.next_id;
                             all_boxed.check_overlap(false);
-                            break all_boxed 
-                        },
-                        Err(info)   => {
+                            break all_boxed;
+                        }
+                        Err(info) => {
                             e.update(info.jobs_boxed);
                             contents = backup.clone();
                             contents.restore_heights();
@@ -587,116 +829,47 @@ impl World {
                 };
                 // At this point, jobs buried in _ready must
                 // be placed and unpacked.
-                let tight = do_placement(
-                    ready.contents, 
-                    0, 
+                let _boxing_time = now.elapsed();
+                //println!("Boxing took {} seconds.", boxing_time.as_secs());
+                let now = Instant::now();
+                let untight = do_placement(
+                    ready.contents,
+                    0,
                     true,
                     false,
                     ready.overlappin,
-                    true,
-                    best_makespan         
+                    false
                 );
-                //let mut refer = PlacedSet::new();
-                //tighten_placement(tight, &mut refer);
-                if tight.is_empty() {
-                    self.magic.update_history(None);
-                } else if tight.max_addr < best_makespan {
-                    best_makespan = tight.max_addr;
-                    println!("Improved! Current best = {} ({} iters)", best_makespan / 4096 + 1, done + 1);
+                let _placement_time = now.elapsed();
+                //println!("Sparse placement derivation took {} seconds.", placement_time.as_secs());
+                let now = Instant::now();
+                let tight = tighten_placement(untight, &mut backup);
+                let _squeeze_time = now.elapsed();
+                //println!("Squeezing took {} seconds.", squeeze_time.as_secs());
+                let new_makespan = tight.max_addr;
+                self.magic.postamble(new_makespan);
+                if new_makespan < best_makespan {
+                    best_makespan = new_makespan;
+                    println!(
+                        "Improved! Current best = {} ({} iters)",
+                        best_makespan / 4096 + 1,
+                        done + 1
+                    );
                     self.update_addresses(&tight);
-                    self.magic.update_history(Some(best_makespan));
                 }
                 done += 1;
             }
-
+            let total_time = out_now.elapsed();
+            println!("Allocation time was {} microseconds.", total_time.as_micros());
             println!("Placement done = {}.", done);
         }
+        self.magic.report_hardness();
         self.give_back().expect("Shit happened.");
     }
 
-    fn update_addresses(&mut self, winner: &PlacedSet) {
-        winner.stuff
-            .iter()
-            .for_each(|j| {
-                self.best_addresses.insert(j.id(), j.addr().unwrap());
-            })
-    }
-}
-
-/* 
-    TAME RANDOMNESS START
-    ----------------------
-
-    Arguably the biggest problem of this algorithm is its random
-    nature, as expressed by the consecutive "critical point injection"
-    in Theorem 2. We want to go one step further and make this process
-    less random. The first step towards this goal is *recording* the
-    decisions taken.
-*/
-
-// We have identified five dimensions along which randomness
-// unfolds: (i) Theorem 16 recursion depth, (ii) Corollary 15
-// bucket index, (iii) Theorem 2 recursion depth, (iv) Theorem 2
-// bucket index and (v) Theorem 2 entry point index, i.e., the bucket
-// index of the previous layer which triggered this iteration.
-// All dimensions' numbering starts from zero, and
-// it is hard to know in advance the precise sizes; this, along
-// with the need to allow for easy indexing, make a Vector of tuples
-// a handy choice.
-type RandMoment = (usize, usize, usize, usize, usize);
-
-// A "random" (for now) moment, coupled to the jobs
-// that are then live. There may be other jobs live
-// as well--we limit ourselves to the jobs included
-// in the partition that triggered said moment selection.
-pub type RandPoint = (Vec<Rc<Job>>, usize);
-
-// A "tensor" (named so because of the many dimensions identified)
-// is a collection of random moments along the unfolding of a SINGLE
-// BA run. As a whole, it can be considered an "action".
-struct RandTensor {
-    data:       Vec<(RandMoment, RandPoint)>
-}
-
-impl RandTensor {
-    fn new() -> Self {
-        Self {
-            data:   vec![]
-        }
-    }
-}
-
-// This is the main structure passed back & forth between
-// the several stages of the algorithm. Running dims are
-// updated accordingly at each stage.
-pub struct RandTameLogic {
-    // All of the "actions" taken in previous
-    // iterations of the algorithm.
-    history:    Cell<Vec<(RandTensor, Option<usize>)>>,
-    // The action currently being built.
-    current:    Cell<RandTensor>,
-    // Index for the current action.
-    pub dims:   RandMoment,
-}
-
-impl RandTameLogic {
-    fn new() -> Self {
-        Self {
-            history:    Cell::new(vec![]),
-            current:    Cell::new(RandTensor::new()),
-            dims:       (0, 0, 0, 0, 0)
-        }
-    }
-
-    fn update_history(&mut self, score: Option<usize>) {
-        let temp = self.current.replace(RandTensor::new());
-        self.history.get_mut().push((temp, score));
-    }
-
-    pub fn update_current_points(&mut self, to_insert: RandPoint) {
-        self.current
-            .get_mut()
-            .data
-            .push((self.dims, to_insert))
+    pub fn update_addresses(&mut self, winner: &PlacedSet) {
+        winner.stuff.iter().for_each(|j| {
+            self.best_addresses.insert(j.id(), j.addr().unwrap());
+        })
     }
 }

@@ -1,4 +1,6 @@
+mod algo;
+pub mod elements;
 pub mod io;
 mod utils;
-pub mod elements;
-mod algo;
+mod mcts;
+mod place;

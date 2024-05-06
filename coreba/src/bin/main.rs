@@ -1,17 +1,17 @@
-use coreba::{io, elements};
+use coreba::{elements, io};
 
 fn main() {
     match io::parse_args() {
-        Ok((plc, diss, maybe_trc)) => {
-            let mut wrld = elements::World::new();
-            match wrld.populate(plc, diss, maybe_trc) {
-                Ok(_)  => { 
+        Ok(config) => {
+            let mut wrld = elements::World::new(&config);
+            match wrld.populate(config) {
+                Ok(_) => {
                     wrld.optimize();
-                },
-                Err(msg)    => panic!("{:?}", msg)
+                }
+                Err(msg) => panic!("{:?}", msg),
             }
-        },
-        Err(msg)    => {
+        }
+        Err(msg) => {
             panic!("{:?}", msg);
         }
     }
