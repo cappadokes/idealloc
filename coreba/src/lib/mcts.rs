@@ -723,7 +723,6 @@ impl RandTameLogic {
         // These actions form the identity (description) of the state
         // we're finding ourselves in, to be used in order to find
         // transpositions.
-
         
         (self.insert_state(cand), true)
     }

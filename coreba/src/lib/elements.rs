@@ -85,7 +85,7 @@ const CODES: [ReqType; 7] = [
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Placement {
-    pub heap:       usize,
+    pub heap: usize,
     // A job may be placed or unplaced.
     // It certainly belongs to some heap,
     // and has some alignment.
