@@ -85,7 +85,7 @@ const CODES: [ReqType; 7] = [
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Placement {
-    pub heap: usize,
+    pub heap:       usize,
     // A job may be placed or unplaced.
     // It certainly belongs to some heap,
     // and has some alignment.
@@ -558,9 +558,24 @@ impl JobSet {
                 self.sort_inc_birth();
                 Area::traverse(self, &mut res, Area::update);
                 self.stats.running_load = res.running_load;
-                self.stats.max_load = res.max_load;
+                //self.stats.max_load = res.max_load;
+                self.stats.max_load = self.stats.running_load
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .fold(None, |oml, (t, l)| {
+                        if let Some((_ct, cml)) = oml {
+                            if *l > cml {
+                                Some((*t, *l))
+                            } else {
+                                oml
+                            }
+                        } else {
+                            Some((*t, *l))
+                        }
+                    });
 
-                res.max_load.unwrap()
+                self.stats.max_load.unwrap()
             }
         }
     }

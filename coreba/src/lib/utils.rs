@@ -6,24 +6,24 @@ use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct HeapStats {
-    pub running_load: Option<BTreeMap<usize, usize>>,
-    pub max_load: Option<(usize, usize)>,
-    pub max_height: Option<usize>,
-    pub min_height: Option<usize>,
+    pub running_load:   Option<BTreeMap<usize, usize>>,
+    pub max_load:       Option<(usize, usize)>,
+    pub max_height:     Option<usize>,
+    pub min_height:     Option<usize>,
     // For used w/ bounding intervals of T2. Contains
     // smallest birth, largest death time.
-    pub horizon: Option<(usize, usize)>,
+    pub horizon:        Option<(usize, usize)>,
 }
 
 impl HeapStats {
     #[inline]
     pub fn new() -> Self {
         Self {
-            running_load: None,
-            max_load: None,
-            max_height: None,
-            min_height: None,
-            horizon: None,
+            running_load:   None,
+            max_load:       None,
+            max_height:     None,
+            min_height:     None,
+            horizon:        None,
         }
     }
 
@@ -100,27 +100,25 @@ impl Area {
     }
 
     pub fn update(&mut self, stats: &mut HeapStats, evt: Event) {
+        if evt.time >= 256 && evt.time <= 259 {
+            println!("Catch me!");
+        }
         match evt.role {
             JobRole::Init => {
                 // Jobs are considered dead at their limits.
                 stats.push_load(evt.time, 0);
                 stats.push_load(evt.time + 1, evt.job.size());
                 self.run_load = evt.job.size();
-                if self.run_load > stats.max_load.unwrap().1 {
-                    stats.max_load = Some((evt.time + 1, self.run_load));
-                }
                 self.live.insert(evt.job.id.get(), evt.job.clone());
             }
             JobRole::Add => {
                 stats.push_load(evt.time, self.run_load);
                 self.run_load += evt.job.size();
                 stats.push_load(evt.time + 1, self.run_load);
-                if self.run_load > stats.max_load.unwrap().1 {
-                    stats.max_load = Some((evt.time + 1, self.run_load));
-                }
                 self.live.insert(evt.job.id.get(), evt.job.clone());
             }
             JobRole::Retire => {
+                // This is a contender for new max load. Compute it.
                 self.run_load -= evt.job.size();
                 match stats.running_load {
                     None => {
