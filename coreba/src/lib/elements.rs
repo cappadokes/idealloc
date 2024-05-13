@@ -700,6 +700,7 @@ pub struct World {
     best_addresses: AddrSet,
     magic:          RandTameLogic,
     num_trials:     usize,
+    capacity:       usize,
 }
 
 use crate::io::Config;
@@ -713,6 +714,7 @@ impl World {
             best_addresses: IndexMap::default(),
             magic:          RandTameLogic::new(c.mcts),
             num_trials:     c.trials,
+            capacity:       c.capacity,
         }
     }
 
@@ -794,6 +796,25 @@ impl World {
         heaps
     }
 
+    fn optim_complete(
+        &self,
+        iters_done: usize,
+        min_cap:    usize,
+        curr_best:  usize,
+    ) -> bool {
+        const MAX_TRIALS: usize = 1_000_000;
+        let curr_best = ((curr_best as f64) / 4096.0).ceil() as usize;
+        let min_cap = ((min_cap as f64) / 4096.0).ceil() as usize;
+        if self.capacity == 0 || self.capacity < min_cap {
+            iters_done == self.num_trials
+        } else {
+            if iters_done == MAX_TRIALS {
+                return true;
+            }
+            curr_best <= self.capacity
+        }
+    }
+
     pub fn optimize(mut self) {
         // First thing to do is to determine how many
         // heaps we're operating on.
@@ -820,7 +841,11 @@ impl World {
             // Error parameter initialized via Corollary 17.
             let mut e = LilEGen::new(&mut contents);
             let out_now = Instant::now();
-            while done < self.num_trials {
+            while !self.optim_complete(
+                done,
+                backup.max_load().1,
+                best_makespan
+            ) {
                 contents = backup.clone();
                 contents.restore_heights();
                 let mut now: Instant;

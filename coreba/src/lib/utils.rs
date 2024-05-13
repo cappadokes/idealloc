@@ -100,9 +100,6 @@ impl Area {
     }
 
     pub fn update(&mut self, stats: &mut HeapStats, evt: Event) {
-        if evt.time >= 256 && evt.time <= 259 {
-            println!("Catch me!");
-        }
         match evt.role {
             JobRole::Init => {
                 // Jobs are considered dead at their limits.

@@ -12,16 +12,18 @@ pub struct Config {
     pub diss:       bool,
     pub trials:     usize,
     pub mcts:       MCTSPolicy,
+    pub capacity:   usize,
 }
 
 pub fn parse_args() -> Result<Config> {
     let mut diss = false;
-    let mut trials = 10_000;
+    let mut trials = 100_000;
     let mut mcts = MCTSPolicy::UCT(2.0_f64.sqrt());
     let mut requests_trace = None;
     let mut inp: Option<BufReader<File>> = None;
+    let mut capacity = 0;
     for (n, arg) in env::args().skip(1).enumerate() {
-        if n > 5 {
+        if n > 6 {
             return Err(Error::msg("Bad arguments."));
         } else if let Ok(t) = usize::from_str_radix(&arg, 10) {
             trials = t;
@@ -61,6 +63,12 @@ pub fn parse_args() -> Result<Config> {
             }
         } else if arg == "--diss" {
             diss = true;
+        } else if arg.starts_with("--capacity=") {
+            capacity = usize::from_str_radix(arg.split('=')
+                .skip(1)
+                .next()
+                .unwrap(), 10)
+                .unwrap();
         } else if arg.contains(".trc") {
             requests_trace = Some(BufReader::new(File::open(arg)?));
         } else if !arg.contains(".plc") {
@@ -76,7 +84,8 @@ pub fn parse_args() -> Result<Config> {
             plc:        inp.unwrap(),
             diss,
             trials,
-            mcts
+            mcts,
+            capacity,
         }
     )
 }

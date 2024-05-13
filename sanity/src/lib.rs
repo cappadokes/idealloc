@@ -825,6 +825,9 @@ impl TDBP {
         let mut idx = 0;
 
         for (t, ld) in &self.stats.running_load {
+            if *t == 256 || *t == 257 {
+                println!("Catch me!");
+            }
             if idx == 0 {
                 self.stats.agg_data.insert(0, (0, 0));
             } else {
@@ -1247,7 +1250,10 @@ impl RefPoint {
 // are no ties).
 impl Ord for RefPoint {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.1.cmp(&self.1).then_with(|| self.2.cmp(&other.2))
+        other.1
+        .cmp(&self.1)
+        .then_with(|| other.0.cmp(&self.0))
+        .then_with(|| self.2.cmp(&other.2))
     }
 }
 
