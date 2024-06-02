@@ -822,6 +822,11 @@ impl World {
             contents.next_id = self.next_id;
             // In case BA fails.
             let mut backup = contents.clone();
+            // Build interference graph to be used in last stage.
+            let mut interference: InterferenceGraph = IndexMap::default();
+            backup.sort_inc_birth();
+            Area::traverse(&mut backup, &mut interference, Area::interference_update);
+
             println!(
                 "{} ({} jobs): (t_m, max_load) = {:?}, (h_min, h_max) = {:?}",
                 base_address,
@@ -836,7 +841,6 @@ impl World {
                 self.magic.set_policy(MCTSPolicy::Madman);
             }
             self.magic.set_bound(contents.max_load().1 as f64);
-            //self.magic.init_state(&backup);
             let mut done = 0;
             // Error parameter initialized via Corollary 17.
             let mut e = LilEGen::new(&mut contents);
@@ -848,12 +852,10 @@ impl World {
             ) {
                 contents = backup.clone();
                 contents.restore_heights();
-                let mut now: Instant;
                 let ready = loop {
                     // 2 possible outcomes exist:
                     // (i) BA has boxed ALL jobs
                     // (ii)BA hasn't done (i)
-                    now = Instant::now();
                     match contents.t_16(e.val, &mut self.magic) {
                         Ok(mut all_boxed) => {
                             self.next_id = all_boxed.next_id;
@@ -869,23 +871,14 @@ impl World {
                 };
                 // At this point, jobs buried in _ready must
                 // be placed and unpacked.
-                let _boxing_time = now.elapsed();
-                //println!("Boxing took {} seconds.", boxing_time.as_secs());
-                let now = Instant::now();
                 let untight = do_placement(
                     ready.contents,
                     0,
                     true,
                     false,
                     ready.overlappin,
-                    false
                 );
-                let _placement_time = now.elapsed();
-                //println!("Sparse placement derivation took {} seconds.", placement_time.as_secs());
-                let now = Instant::now();
-                let tight = tighten_placement(untight, &mut backup);
-                let _squeeze_time = now.elapsed();
-                //println!("Squeezing took {} seconds.", squeeze_time.as_secs());
+                let tight = tighten_placement(untight, &interference);
                 let new_makespan = tight.max_addr;
                 self.magic.postamble(new_makespan);
                 if new_makespan < best_makespan {

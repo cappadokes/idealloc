@@ -1,13 +1,9 @@
 use std::collections::BTreeSet;
 use std::rc::Rc;
-use std::time::Instant;
-
-use indexmap::IndexMap;
 
 use crate::elements::{InterferenceGraph, Job};
 use crate::elements::{JobSet, LiveSet};
 use crate::algo::sort_inc_birth;
-use crate::utils::Area;
 
 pub struct PlacedSet {
     // Help structure for final placement.
@@ -15,7 +11,6 @@ pub struct PlacedSet {
     // with tie breaks made by next_avail_addr().
     pub stuff: BTreeSet<Rc<Job>>,
     pub max_addr: usize,
-    //pub horizon: (usize, usize),
 }
 
 impl PlacedSet {
@@ -24,27 +19,18 @@ impl PlacedSet {
         PlacedSet {
             stuff: BTreeSet::new(),
             max_addr: 0,
-            //horizon: (usize::MAX, usize::MIN),
         }
     }
 
     #[inline]
     fn append(&mut self, mut other: Self) {
         self.max_addr = self.max_addr.max(other.max_addr);
-        /*
-        self.horizon = (
-            self.horizon.0.min(other.horizon.0),
-            self.horizon.1.max(other.horizon.1),
-        );
-        */
         self.stuff.append(&mut (other.stuff));
     }
 
     #[inline]
     fn push(&mut self, entry: Rc<Job>) {
         self.max_addr = self.max_addr.max(entry.next_avail_addr());
-        //let (start, end) = entry.endpoints();
-        //self.horizon = (self.horizon.0.min(start), self.horizon.1.max(end));
         self.stuff.insert(entry);
     }
 
@@ -74,7 +60,6 @@ pub fn do_placement(
     just_boxes: bool,
     just_jobs: bool,
     overlappin: bool,
-    tighten: bool,
 ) -> PlacedSet {
     let mut res = PlacedSet::new();
 
@@ -84,12 +69,8 @@ pub fn do_placement(
             helper.contents = inp;
             sort_inc_birth(&mut helper.contents);
             for row in helper.igc() {
-                let placed = do_placement(row, watermark, true, false, false, false);
-                if tighten {
-                    tighten_placement(placed, &mut helper);
-                } else {
-                    res.append(placed);
-                }
+                let placed = do_placement(row, watermark, true, false, false);
+                res.append(placed);
                 watermark = res.max_addr;
             }
         } else {
@@ -102,7 +83,6 @@ pub fn do_placement(
                     j.just_boxes.get(),
                     j.just_jobs.get(),
                     j.overlappin.get(),
-                    false,
                 );
                 res.append(placed);
             }
@@ -124,7 +104,7 @@ pub fn do_placement(
                 sort_inc_birth(&mut helper.contents);
                 for row in helper.igc() {
                     let placed =
-                        do_placement(row, watermark, false, true, false, false);
+                        do_placement(row, watermark, false, true, false);
                     res.append(placed);
                     watermark = res.max_addr;
                 }
@@ -159,7 +139,6 @@ pub fn do_placement(
             false,
             true,
             jobs.overlappin,
-            false,
         );
         res.append(placed);
         if overlappin {
@@ -171,7 +150,6 @@ pub fn do_placement(
             true,
             false,
             boxes.overlappin,
-            false,
         );
         res.append(placed);
     }
@@ -182,20 +160,12 @@ pub fn do_placement(
 }
 
 pub fn tighten_placement(
-    inp:    PlacedSet, 
-    jobs:   &mut JobSet
+    inp:            PlacedSet, 
+    interference:   &InterferenceGraph
 ) -> PlacedSet {
-    let now = Instant::now();
     let mut reference = PlacedSet::new();
-
     let inp = inp.stuff;
-    let mut interference: InterferenceGraph = IndexMap::default();
-    jobs.sort_inc_birth();
-    Area::traverse(jobs, &mut interference, Area::interference_update);
-    let _interf_time = now.elapsed();
-    //println!("Interference graph building took {} seconds", interf_time.as_secs());
 
-    let now = Instant::now();
     for j in inp {
         let target = j.size();
         let mut next_avail = 0;
@@ -246,7 +216,6 @@ pub fn tighten_placement(
         } else { j.place(next_avail, true); }
         reference.push(j);
     }
-    let _loop_time = now.elapsed();
 
     reference
 }
