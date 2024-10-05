@@ -16,13 +16,19 @@ use crate::ByteSteps;
 /// beginning of the contiguous memory space in which `idealloc` needs
 /// to place its [`Job`]s.
 /// 
+/// - [`curr_offset`](Placement::curr_offset) holds the current offset.
+/// There is an element of iteration in `idealloc` (for `n` iterations,
+/// `n` candidate offsets per job are calculated, and the best is kept
+/// at the end).
+/// 
 /// - [`alignment`](Placement::alignment) stores potential alignment
 /// requirements. If present, it guarantees that [`offset`](Placement::offset)%[`alignment`](Placement::alignment)
 ///  == 0.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Placement {
-    pub req_size:   ByteSteps,
-    pub alloc_size: ByteSteps,
-    pub offset:     Option<ByteSteps>,
-    pub alignment:  Option<u16>,
+    pub req_size:       ByteSteps,
+    pub alloc_size:     ByteSteps,
+    pub offset:         Option<ByteSteps>,
+    pub curr_offset:    Option<ByteSteps>,
+    pub alignment:      Option<u16>,
 }

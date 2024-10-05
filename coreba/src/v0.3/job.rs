@@ -5,6 +5,23 @@ impl Job {
     pub fn is_live_at(&self, t: usize) -> bool {
         self.birth < t && self.death > t
     }
+
+    /// Returns `true` if the job is original, i.e., was
+    /// part of the user input and not created in the context
+    /// of boxing.
+    pub fn is_original(&self) -> bool {
+        if let Some(_) = self.contents { false }
+        else { true }
+    }
+
+    pub fn upd_off(&self) {
+        let plc = self.home.as_ptr();
+        unsafe {
+            // I need the `unsafe` in order to change the offset
+            // in-place instead of copying and re-setting stuff.
+            (*plc).offset.replace((*plc).curr_offset.unwrap());
+        }
+    }
 }
 
 //-----TREATING GROUPS OF JOBS (START)---------------------

@@ -1,13 +1,15 @@
 //! Welcome to `idealloc`!
 
+/// Helpful abbreviations in here.
 mod types;
-use std::sync::Arc;
-
 use types::*;
 
+/// Functionality related to managing space
+/// (that is, memory).
 mod space;
 use space::Placement;
 
+use std::cell::Cell;
 /// Our fundamental unit of interest. A [`Job`] is a complete description
 /// of the events triggered by the need for some memory:
 /// 
@@ -33,7 +35,7 @@ pub struct Job {
     pub size:   ByteSteps,
     pub birth:  ByteSteps,
     pub death:  ByteSteps,
-    pub home:   Placement,
+    pub home:   Cell<Placement>,
     /// They user may not care, but `idealloc`'s core operation is boxing
     /// jobs together recursively. A very common interface is (i) consuming
     /// a set of jobs and (ii) producing a *new* set, its elements containing
@@ -50,14 +52,36 @@ pub struct Job {
 /// Houses [`Job`]-related implementation.
 mod job;
 
+use std::rc::Rc;
 /// A group of jobs, sorted in order of increasing birth.
 /// 
 /// This is arguably the most commonly occuring abstraction in
 /// `idealloc`.
 #[derive(PartialEq, Eq)]
-pub struct JobSet {
-    elts:   Vec<Arc<Job>>,
-}
+pub struct JobSet (Vec<Rc<Job>>);
 
 /// Houses [`JobSet`]-related implementation.
 mod jobset;
+
+/// The entity consumed and produced by the majority of
+/// `idealloc`'s components. On the highest level, `idealloc`
+/// creates an input [`Instance`] comprising *unplaced* jobs,
+/// puts it through the boxing pipeline, culminating into a
+/// transformed [`Instance`] of *still unplaced* jobs, and then
+/// unboxes and performs the actual placement.
+#[derive(Clone)]
+pub struct Instance {
+    // To avoid expensive allocations when cloning at the
+    // beginning of each next iteration.
+    jobs:               Rc<JobSet>,
+    // Used during calibrating epsilon.
+    originals_boxed:    u32,
+    load:               Option<ByteSteps>,
+}
+
+mod instance;
+
+mod algo;
+pub use algo::main_loop;
+
+mod utils;

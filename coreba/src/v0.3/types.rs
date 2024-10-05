@@ -9,4 +9,6 @@ use crate::Job;
 /// That said, one might object against our decision to use the same
 /// type for both job sizes and their lifetimes. Many such objections
 /// may hold merit! We will publish a trait-based version in the future.
+/// 
+/// TODO: Make the fact that we're designing with 64bit arch in mind explicit.
 pub type ByteSteps = usize;
