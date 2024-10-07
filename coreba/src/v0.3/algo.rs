@@ -120,9 +120,9 @@ impl Instance {
         let mut res = HashMap::new();
         let mut i = 1;
         let mut source = self;
-        while source.jobs.0.len() > 0 {
+        while source.jobs.len() > 0 {
             let h = (1.0 + epsilon).powi(i).floor() as ByteSteps;
-            if source.jobs.0
+            if source.jobs
                 .iter()
                 .any(|j| { j.size.get() <= h}) {
                 let (toward_bucket, rem) = source.split_by_height(h);

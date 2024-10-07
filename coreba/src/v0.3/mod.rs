@@ -49,8 +49,6 @@ pub struct Job {
     contents:           Option<JobSet>,
     // Used during calibrating epsilon.
     originals_boxed:    u32,
-    /// TODO: Not sure whether I need this field.
-    id:                 u32,
 }
 
 /// Houses [`Job`]-related implementation.
@@ -61,8 +59,7 @@ use std::rc::Rc;
 /// 
 /// This is arguably the most commonly occuring abstraction in
 /// `idealloc`.
-#[derive(PartialEq, Eq)]
-pub struct JobSet (Vec<Rc<Job>>);
+type JobSet = Vec<Rc<Job>>;
 
 /// Houses [`JobSet`]-related implementation.
 mod jobset;

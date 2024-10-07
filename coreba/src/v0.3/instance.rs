@@ -1,8 +1,7 @@
 use std::rc::Rc;
 
-use itertools::Itertools;
-
 use crate::{ByteSteps, Instance, Job, JobSet};
+use itertools::Itertools;
 
 /// Stores useful information about an [Instance].
 #[derive(Clone, Copy)]
@@ -55,7 +54,7 @@ impl Instance {
     /// Runs in case a better solution has been found and
     /// updates input job offsets accordingly.
     pub fn update_offsets(&self) {
-        self.jobs.0
+        self.jobs
             .iter()
             .for_each(|j| { j.upd_off() });
     }
@@ -66,7 +65,15 @@ impl Instance {
         match self.info.min_max_height {
             Some(v) => { v },
             None    => {
-                let res = self.jobs.min_max_height();
+                let res = self.jobs
+                    .iter()
+                    .fold((ByteSteps::MAX, ByteSteps::MIN), |(mut min, mut max), j| {
+                        let curr = j.size.get();
+                        if curr < min { min = curr; }
+                        if curr > max { max = curr; }
+
+                        (min, max)
+                    });
                 self.info.min_max_height = Some(res);
 
                 res
@@ -77,19 +84,19 @@ impl Instance {
     /// Splits an [Instance] into two new instances, the first
     /// containing jobs of CURRENT size up to `ceil`.
     pub fn split_by_height(self, ceil: ByteSteps) -> (Self, Self) {
-        let (small, high): (Vec<Rc<Job>>, Vec<Rc<Job>>) = self.jobs.0
+        let (small, high) = self.jobs
             .iter()
             .cloned()
             .partition(|j| { j.size.get() <= ceil });
 
         // TODO: assert that the two collections preserve sorting!
-        (Self::new(JobSet(small)), Self::new(JobSet(high)))
+        (Self::new(small), Self::new(high))
     }
 
     /// Counts how many of the *ORIGINAL* buffers have
     /// been boxed somewhere into the instance.
     pub fn total_originals_boxed(&self) -> u32 {
-        self.jobs.0
+        self.jobs
             .iter()
             .fold(0, |sum, j| {
                 sum + j.originals_boxed
@@ -98,13 +105,13 @@ impl Instance {
 
     /// Merges `self` with another [Instance].
     pub fn merge_with(&mut self, mut other: Self) {
-        let all: Vec<Rc<Job>> = self.jobs.0
+        let all: Vec<Rc<Job>> = self.jobs
             .iter()
-            .chain(other.jobs.0.iter())
+            .chain(other.jobs.iter())
             .cloned()
             .sorted_unstable()
             .collect();
-        self.jobs = Rc::new(JobSet(all));
+        self.jobs = Rc::new(all);
         self.info.load = None;
         let (this_min, this_max) = self.min_max_height();
         let (that_min, that_max) = other.min_max_height();
@@ -113,16 +120,25 @@ impl Instance {
 
     /// Restores current sizes to the original ones.
     pub fn restore_heights(&self) {
-        self.jobs.0
+        if self.jobs
             .iter()
-            .for_each(|j| {
-                j.size.set(j.home.get().alloc_size);
-            });
+            .any(|j| {
+                // No reason to overwrite everything if
+                // it's already good.
+                j.size.get() != j.home.get().alloc_size
+        }) {
+            self.jobs
+                .iter()
+                .for_each(|j| {
+                    j.size.set(j.home.get().alloc_size);
+                }
+            );
+        }
     }
 
     /// Changes current sizes to `h`.
     pub fn change_current_heights(&self, h: ByteSteps) {
-        self.jobs.0
+        self.jobs
             .iter()
             .for_each(|j| {
                 j.size.set(h);
@@ -132,7 +148,7 @@ impl Instance {
     /// Changes INITIAL sizes to `h`, and sets current
     /// size accordingly.
     pub fn change_init_heights(&self, h: ByteSteps) {
-        self.jobs.0
+        self.jobs
             .iter()
             .for_each(|j| {
                 let mut new_home = j.home.get();
