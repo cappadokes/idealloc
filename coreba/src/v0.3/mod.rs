@@ -32,10 +32,12 @@ use std::cell::Cell;
 #[derive(Eq)]
 pub struct Job {
     // The bigger the type, the wider a variety of workloads is allowable.
-    pub size:   ByteSteps,
-    pub birth:  ByteSteps,
-    pub death:  ByteSteps,
-    pub home:   Cell<Placement>,
+    // This is the *CURRENT* size of the job! It will vary as it moves
+    // along the algorithm's pipeline!
+    pub size:           Cell<ByteSteps>,
+    pub birth:          ByteSteps,
+    pub death:          ByteSteps,
+    pub home:           Cell<Placement>,
     /// They user may not care, but `idealloc`'s core operation is boxing
     /// jobs together recursively. A very common interface is (i) consuming
     /// a set of jobs and (ii) producing a *new* set, its elements containing
@@ -44,9 +46,11 @@ pub struct Job {
     /// The boxing algorithm does not differentiate between "original" jobs
     /// that contain nothing and "spawned" jobs that contain at least one
     /// job. "Everything is a [`Job`]."
-    contents:   Option<JobSet>,
+    contents:           Option<JobSet>,
+    // Used during calibrating epsilon.
+    originals_boxed:    u32,
     /// TODO: Not sure whether I need this field.
-    id:         u32,
+    id:                 u32,
 }
 
 /// Houses [`Job`]-related implementation.
@@ -73,13 +77,12 @@ mod jobset;
 pub struct Instance {
     // To avoid expensive allocations when cloning at the
     // beginning of each next iteration.
-    jobs:               Rc<JobSet>,
-    // Used during calibrating epsilon.
-    originals_boxed:    u32,
-    load:               Option<ByteSteps>,
+    jobs:   Rc<JobSet>,
+    info:   Info,
 }
 
 mod instance;
+use instance::Info;
 
 mod algo;
 pub use algo::main_loop;

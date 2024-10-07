@@ -14,6 +14,13 @@ impl Job {
         else { true }
     }
 
+    /// Updates the job's "final" offset to the one that
+    /// has been currently computed for it.
+    /// 
+    /// `idealloc` operates on a "best effort" basis if
+    /// configured to run for more than 1 iterations---thus
+    /// many offsets are computed per job, and eventually
+    /// those yielding the smallest makespan are chosen.
     pub fn upd_off(&self) {
         let plc = self.home.as_ptr();
         unsafe {

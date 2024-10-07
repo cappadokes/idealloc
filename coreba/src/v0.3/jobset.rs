@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{Job, JobSet};
+use crate::{ByteSteps, Job, JobSet};
 use itertools::Itertools;
 
 impl JobSet {
@@ -23,5 +23,18 @@ impl JobSet {
                 .collect()
             }
         )
+    }
+
+    /// Computes the maximum CURRENT height over the JobSet.
+    pub fn min_max_height(&self) -> (ByteSteps, ByteSteps) {
+        self.0
+            .iter()
+            .fold((ByteSteps::MAX, ByteSteps::MIN), |(mut min, mut max), j| {
+                let curr = j.size.get();
+                if curr < min { min = curr; }
+                if curr > max { max = curr; }
+
+                (min, max)
+            })
     }
 }

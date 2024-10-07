@@ -1,12 +1,17 @@
+use std::collections::HashMap;
+
 use crate::{
-    utils::Epsilon,
-    Instance
+    utils::Epsilon, ByteSteps, Instance, JobSet
 };
 
+/// Executes the core `idealloc` loop for a `max_iters`
+/// number of times. At the end the jobs in `input` have
+/// received placement offsets.
 pub fn main_loop(
-    mut input:  Instance,
+    input:      JobSet,
     max_iters:  u32,
 ) {
+    let mut input = Instance::new(input);
     // We time the different phases, both for debugging
     // and because we find it interesting.
     use std::time::Instant;
@@ -14,6 +19,8 @@ pub fn main_loop(
     let mut start = Instant::now();
 
     // First thing to do is stabilize epsilon.
+    // As a by-product, ε-initialization fleshes out the
+    // input's info (max load, min/max height).
     let mut epsilon = Epsilon::new(&mut input);
     let boxes = loop {
         match t_16(input.clone(), epsilon.val) {
@@ -21,10 +28,12 @@ pub fn main_loop(
                 // We reach this point only when all
                 // original jobs have been boxed.
                 println!("ε-convergence: {}", start.elapsed().as_micros());
+                input.restore_heights();
                 break b 
             },
             Err(jobs_boxed)  => {
                 epsilon.update(jobs_boxed);
+                input.restore_heights();
             }
         }
     };
@@ -48,6 +57,7 @@ pub fn main_loop(
             // that ε has been stabilized.
             .unwrap()
             .unbox();
+        input.restore_heights();
         input.tighten();
         let current_opt = input.opt();
         if current_opt < best_opt {
@@ -71,7 +81,25 @@ fn t_16(
     unimplemented!()
 }
 
-// Unboxing and tightening implementation are considered
+/// Checks if Theorem 16 has converged.
+fn t_16_cond(
+    input:      &mut Instance,
+    epsilon:    f32
+)   -> (bool, f32, ByteSteps) {
+    let (h_min, h_max) = input.min_max_height();
+    let r = h_max as f32 / h_min as f32;
+
+    let lg2r = r.log2().powi(2);
+    let mu = epsilon / lg2r;
+
+    (
+        lg2r < 1.0 / epsilon,
+        mu,
+        (mu.powi(5) * (h_max as f32) / lg2r).ceil() as ByteSteps,
+    )
+}
+
+// The following operations are considered
 // parts of the algorithm, so they're put here instead of
 // the file hosting the rest of the impls.
 impl Instance {
@@ -83,5 +111,28 @@ impl Instance {
     /// Tightens already placed elements.
     fn tighten(&self) {
         unimplemented!()
+    }
+
+    /// Splits instance to unit-height buckets, in the
+    /// context of Corollary 15. Each bucket is indexed
+    /// by the height to be given to Theorem 2.
+    fn make_buckets(self, epsilon: f32) -> HashMap<ByteSteps, Instance> {
+        let mut res = HashMap::new();
+        let mut i = 1;
+        let mut source = self;
+        while source.jobs.0.len() > 0 {
+            let h = (1.0 + epsilon).powi(i).floor() as ByteSteps;
+            if source.jobs.0
+                .iter()
+                .any(|j| { j.size.get() <= h}) {
+                let (toward_bucket, rem) = source.split_by_height(h);
+                toward_bucket.change_current_heights(1);
+                res.insert(h, toward_bucket);
+                source = rem;
+            }
+            i += 1;
+        }
+
+        res
     }
 }
