@@ -1,16 +1,11 @@
 use std::collections::HashMap;
 
-use crate::{
-    utils::Epsilon, ByteSteps, Instance, JobSet
-};
+use crate::{utils::Epsilon, ByteSteps, Instance, JobSet};
 
 /// Executes the core `idealloc` loop for a `max_iters`
 /// number of times. At the end the jobs in `input` have
 /// received placement offsets.
-pub fn main_loop(
-    input:      JobSet,
-    max_iters:  u32,
-) {
+pub fn main_loop(input: JobSet, max_iters: u32) {
     let mut input = Instance::new(input);
     // We time the different phases, both for debugging
     // and because we find it interesting.
@@ -24,14 +19,14 @@ pub fn main_loop(
     let mut epsilon = Epsilon::new(&mut input);
     let boxes = loop {
         match t_16(input.clone(), epsilon.val) {
-            Ok(b)   => { 
+            Ok(b) => {
                 // We reach this point only when all
                 // original jobs have been boxed.
                 println!("ε-convergence: {}", start.elapsed().as_micros());
                 input.restore_heights();
-                break b 
-            },
-            Err(jobs_boxed)  => {
+                break b;
+            }
+            Err(jobs_boxed) => {
                 epsilon.update(jobs_boxed);
                 input.restore_heights();
             }
@@ -41,7 +36,7 @@ pub fn main_loop(
     start = Instant::now();
 
     // Produce initial set of offsets. They are inscribed to
-    // the jobs of the input, which are still available. 
+    // the jobs of the input, which are still available.
     boxes.unbox();
     println!("1 unboxing iteration: {} μs", start.elapsed().as_micros());
     start = Instant::now();
@@ -67,25 +62,22 @@ pub fn main_loop(
         iters_done += 1;
     }
 
-    println!("Total allocation time: {} μs", total_start.elapsed().as_micros());
+    println!(
+        "Total allocation time: {} μs",
+        total_start.elapsed().as_micros()
+    );
 }
 
 /// Implements Theorem 16 from Buchsbaum et al. Returns
 /// a modified [`Instance`] in case of convergence, and
 /// the number of original jobs that this run managed
 /// to box otherwise.
-fn t_16(
-    input:      Instance,
-    epsilon:    f32
-)   -> Result<Instance, u32> {
+fn t_16(input: Instance, epsilon: f32) -> Result<Instance, u32> {
     unimplemented!()
 }
 
 /// Checks if Theorem 16 has converged.
-fn t_16_cond(
-    input:      &mut Instance,
-    epsilon:    f32
-)   -> (bool, f32, ByteSteps) {
+fn t_16_cond(input: &mut Instance, epsilon: f32) -> (bool, f32, ByteSteps) {
     let (h_min, h_max) = input.min_max_height();
     let r = h_max as f32 / h_min as f32;
 
@@ -122,9 +114,7 @@ impl Instance {
         let mut source = self;
         while source.jobs.len() > 0 {
             let h = (1.0 + epsilon).powi(i).floor() as ByteSteps;
-            if source.jobs
-                .iter()
-                .any(|j| { j.size.get() <= h}) {
+            if source.jobs.iter().any(|j| j.size.get() <= h) {
                 let (toward_bucket, rem) = source.split_by_height(h);
                 toward_bucket.change_current_heights(1);
                 res.insert(h, toward_bucket);

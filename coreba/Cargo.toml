@@ -11,6 +11,7 @@ version = "0.62.0"
 
 [dependencies]
 itertools   = { workspace = true }
+thiserror   = { workspace = true }
 
 [lib]
 path    = "src/v0.3/mod.rs"

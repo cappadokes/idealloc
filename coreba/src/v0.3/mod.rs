@@ -12,12 +12,12 @@ use space::Placement;
 use std::cell::Cell;
 /// Our fundamental unit of interest. A [`Job`] is a complete description
 /// of the events triggered by the need for some memory:
-/// 
+///
 /// 1. [`size`](Job::size) bytes were *allocated* at logical time [`birth`](Job::birth).
 ///     The originally *requested* size, plus some further info, is
 ///     stored in [`home`](Job::home).
 /// 2. The memory was *deallocated* at logical time [`death`](Job::death).
-/// 
+///
 /// > ***ATTENTION:*** One must at all times be cognizant of their
 /// jobs' *liveness semantics*, that is, the boundary conditions w.r.t.
 /// how memory behaves at [Job::birth] and [Job::death]. Assume the sorted
@@ -29,7 +29,7 @@ use std::cell::Cell;
 /// > In `idealloc`, memory is **not live** at the extremes. If a job is born
 /// > at the same time that another job dies, they could share the
 /// > same offset.
-#[derive(Eq)]
+#[derive(Eq, Debug)]
 pub struct Job {
     // The bigger the type, the wider a variety of workloads is allowable.
     // This is the *CURRENT* size of the job! It will vary as it moves
@@ -42,7 +42,7 @@ pub struct Job {
     /// jobs together recursively. A very common interface is (i) consuming
     /// a set of jobs and (ii) producing a *new* set, its elements containing
     /// subgroups of the input set.
-    /// 
+    ///
     /// The boxing algorithm does not differentiate between "original" jobs
     /// that contain nothing and "spawned" jobs that contain at least one
     /// job. "Everything is a [`Job`]."
@@ -56,7 +56,7 @@ mod job;
 
 use std::rc::Rc;
 /// A group of jobs, sorted in order of increasing birth.
-/// 
+///
 /// This is arguably the most commonly occuring abstraction in
 /// `idealloc`.
 type JobSet = Vec<Rc<Job>>;
@@ -74,8 +74,8 @@ mod jobset;
 pub struct Instance {
     // To avoid expensive allocations when cloning at the
     // beginning of each next iteration.
-    jobs:   Rc<JobSet>,
-    info:   Info,
+    jobs: Rc<JobSet>,
+    info: Info,
 }
 
 mod instance;

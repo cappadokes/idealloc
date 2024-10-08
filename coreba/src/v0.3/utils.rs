@@ -2,21 +2,21 @@ use crate::Instance;
 
 /// The boxing procedure is governed by
 /// this floating-point value.
-/// 
+///
 /// It is the ε in the "2+ε" bound provided
 /// by Buchsbaum et al.
 pub struct Epsilon {
-    pub val:    f32,
-    last:       u32,
-    limit:      f32,
+    pub val: f32,
+    last: u32,
+    limit: f32,
 }
 
 impl Epsilon {
     pub fn new(jobs: &mut Instance) -> Self {
         Self {
-            val:    jobs.init_e(),
-            last:   0,
-            limit:  0.0,
+            val: jobs.init_e(),
+            last: 0,
+            limit: 0.0,
         }
     }
 
