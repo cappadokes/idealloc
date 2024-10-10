@@ -1,44 +1,4 @@
-use std::{io::Read, rc::Rc};
-use thiserror::Error;
-
-use crate::{Job, JobSet};
-use itertools::Itertools;
-
-/// Defines the interface for reading jobs. Any type
-/// that implements `Read` is acceptable as source.
-///
-/// For example: we will write a type that implements [JobGen]
-/// and reads a `minimalloc`-style CSV. We will write another
-/// type that reads from a Linux-born `.trc` binary file.
-///
-/// The user can implement their own types as needed.
-trait JobGen {
-    /// Required method. A successful reading returns (i) Some(j) in case more
-    /// jobs follow or (ii) None in case all the source has been read.
-    fn read_next(src: &mut dyn Read) -> Result<Option<Job>, std::io::Error>;
-
-    /// Default method. We repeatedly invoke `read_next` until
-    /// no new jobs appear. If at any point some error occurs, it is
-    /// propagated back to the caller.
-    fn read_all(src: &mut dyn Read) -> Result<Vec<Job>, std::io::Error> {
-        let mut res = vec![];
-
-        while let Some(j) = Self::read_next(src)? {
-            res.push(j);
-        }
-
-        Ok(res)
-    }
-}
-
-#[derive(Error, Debug)]
-#[error("{message}\n{:?}", culprit)]
-/// Appears while constructing the [JobSet] of *original*
-/// jobs to be dealt with.
-struct JobError {
-    message: String,
-    culprit: Job,
-}
+use crate::utils::*;
 
 /// Initializes a JobSet with a given set of jobs.
 /// A successfully returned JobSet is guaranteed to be
@@ -53,7 +13,7 @@ struct JobError {
 /// - job is original
 ///
 /// This function is the gatekeeper to the rest of the library.
-fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
+pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
     for (idx, j) in in_elts.iter_mut().enumerate() {
         if j.size.get() == 0 {
             return Err(JobError {

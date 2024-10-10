@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use crate::{utils::Epsilon, ByteSteps, Instance, JobSet};
+use crate::utils::*;
 
 /// Executes the core `idealloc` loop for a `max_iters`
 /// number of times. At the end the jobs in `input` have

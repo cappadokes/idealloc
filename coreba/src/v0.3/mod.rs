@@ -1,15 +1,16 @@
 //! Welcome to `idealloc`!
 
-/// Helpful abbreviations in here.
-mod types;
-use types::*;
-
-/// Functionality related to managing space
-/// (that is, memory).
 mod space;
-use space::Placement;
+mod job;
+mod instance;
+pub mod algo;
+pub mod utils;
+pub mod jobset;
 
-use std::cell::Cell;
+/// Imports, type aliases, traits ... in general
+/// useful stuff that shall be needed in many places.
+use crate::utils::*;
+
 /// Our fundamental unit of interest. A [`Job`] is a complete description
 /// of the events triggered by the need for some memory:
 ///
@@ -37,7 +38,7 @@ pub struct Job {
     pub size:           Cell<ByteSteps>,
     pub birth:          ByteSteps,
     pub death:          ByteSteps,
-    pub home:           Cell<Placement>,
+    pub home:           Cell<space::Placement>,
     /// They user may not care, but `idealloc`'s core operation is boxing
     /// jobs together recursively. A very common interface is (i) consuming
     /// a set of jobs and (ii) producing a *new* set, its elements containing
@@ -51,19 +52,6 @@ pub struct Job {
     originals_boxed:    u32,
 }
 
-/// Houses [`Job`]-related implementation.
-mod job;
-
-use std::rc::Rc;
-/// A group of jobs, sorted in order of increasing birth.
-///
-/// This is arguably the most commonly occuring abstraction in
-/// `idealloc`.
-type JobSet = Vec<Rc<Job>>;
-
-/// Houses [`JobSet`]-related implementation.
-mod jobset;
-
 /// The entity consumed and produced by the majority of
 /// `idealloc`'s components. On the highest level, `idealloc`
 /// creates an input [`Instance`] comprising *unplaced* jobs,
@@ -75,13 +63,5 @@ pub struct Instance {
     // To avoid expensive allocations when cloning at the
     // beginning of each next iteration.
     jobs: Rc<JobSet>,
-    info: Info,
+    info: instance::Info,
 }
-
-mod instance;
-use instance::Info;
-
-mod algo;
-pub use algo::main_loop;
-
-mod utils;

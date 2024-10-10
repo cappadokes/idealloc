@@ -1,7 +1,4 @@
-use std::rc::Rc;
-
-use crate::{ByteSteps, Instance, Job, JobSet};
-use itertools::Itertools;
+use crate::utils::*;
 
 /// Stores useful information about an [Instance].
 #[derive(Clone, Copy)]

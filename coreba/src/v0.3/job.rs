@@ -1,4 +1,4 @@
-use crate::{ByteSteps, Job};
+use crate::utils::*;
 
 impl Job {
     /// Returns `true` if the job is live at moment `t`.
