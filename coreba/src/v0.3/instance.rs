@@ -44,7 +44,28 @@ impl Instance {
             // thus considered expensive.
             Some(v) => v,
             None => {
-                unimplemented!()
+                let (mut running, mut max) = (0, 0);
+                let mut evts = get_events(&self.jobs);
+                while let Some(evt) = evts.pop()  {
+                    match evt.evt_t {
+                        EventKind::Birth    => {
+                            running += evt.job.size.get();
+                            if running > max {
+                                max = running;
+                            }
+                        },
+                        EventKind::Death    => {
+                            if let Some(v) = running.checked_sub(evt.job.size.get()) {
+                                running = v;
+                            } else {
+                                panic!("Almost overflowed load!");
+                            }
+                        }
+                    }
+                }
+                self.info.load = Some(max);
+
+                max
             }
         }
     }

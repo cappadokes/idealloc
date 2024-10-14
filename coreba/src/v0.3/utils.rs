@@ -2,13 +2,15 @@ pub use std::{
     rc::Rc,
     io::{BufRead, BufReader},
     cell::Cell,
-    collections::HashMap,
+    collections::{HashMap, BinaryHeap},
     path::PathBuf,
 };
 pub use thiserror::Error;
 pub use itertools::Itertools;
 
-pub use crate::{Instance, Job};
+pub use crate::{Instance, Job,
+    jobset::*,
+};
 
 /// The unit for measuring logical time. `idealloc` does not care about
 /// semantics, as long as the liveness invariant (see [`Job`]) is preserved.

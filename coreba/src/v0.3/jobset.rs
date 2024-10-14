@@ -74,3 +74,76 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
         .map(|x| Rc::new(x))
         .collect())
 }
+
+#[derive(PartialEq, Eq)]
+/// An [Event] is either a birth or a death.
+pub enum EventKind {
+    Birth,
+    Death,
+}
+
+#[derive(Eq)]
+pub struct Event {
+    pub job:    Rc<Job>,
+    pub evt_t:  EventKind,
+    // Copy time here to elude pattern matching during
+    // comparison.
+    pub time:   ByteSteps,
+}
+
+/// Traversal of a [JobSet] can be thought as an ordered stream
+/// of events, with increasing time of occurence. Each [Job] generates
+/// two events, corresponding to the start/end of its lifetime
+/// respectively.
+/// 
+/// We use these events to calculate things such as maximum load,
+/// interference graphs, fragmentation, critical points, etc.
+type Events = BinaryHeap<Event>;
+
+impl Ord for Event {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // We're using a BinaryHeap, which is
+        // a max-priority queue. We want a min-one
+        // and so we're reversing the order of `cmp`.
+        if self.time != other.time {
+            other.time.cmp(&self.time)
+        } else {
+            if self.evt_t == other.evt_t {
+                other.time.cmp(&self.time)
+            } else {
+                match self.evt_t {
+                    EventKind::Birth    => { std::cmp::Ordering::Less },
+                    EventKind::Death    => { std::cmp::Ordering::Greater },
+                }
+            }
+        }
+    }
+}
+impl PartialOrd for Event {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        self.time == other.time
+    }
+}
+
+pub fn get_events(jobs: &JobSet) -> Events {
+    let mut res = BinaryHeap::new();
+    for j in jobs {
+        res.push(Event {
+            job:    j.clone(),
+            evt_t:  EventKind::Birth,
+            time:   j.birth,
+        });
+        res.push(Event {
+            job:    j.clone(),
+            evt_t:  EventKind::Death,
+            time:   j.death,
+        });
+    };
+
+    res
+}

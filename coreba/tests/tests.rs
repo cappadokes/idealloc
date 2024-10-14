@@ -6,7 +6,10 @@ fn get_crate_root() -> Result<PathBuf, std::env::VarError> {
 
 fn read_pangu() -> Result<JobSet, Box<dyn std::error::Error>> {
     let mut csv_path = get_crate_root()?;
-    csv_path.push("tests/data/pangu_2.6B.csv");
+    //csv_path.push("tests/data/pangu_2.6B.csv");
+    //csv_path.push("tests/data/tiny_bert.csv");
+    //csv_path.push("tests/data/bert_nezha.csv");
+    csv_path.push("tests/data/non_existent.csv");
     let parser = MinimalloCSVParser::new(csv_path);
     let jobs = parser.read_jobs()?;
     assert!(jobs.len() > 0);
