@@ -13,7 +13,7 @@ impl Instance {
     /// Creates a new [Instance] from a [JobSet].
     pub fn new(jobs: JobSet) -> Self {
         Self {
-            jobs: Rc::new(jobs),
+            jobs: Arc::new(jobs),
             // We will compute the info later, on
             // a need-to basis.
             info: Info {
@@ -46,6 +46,10 @@ impl Instance {
             None => {
                 let (mut running, mut max) = (0, 0);
                 let mut evts = get_events(&self.jobs);
+                // The `evts` variable is a min-priority queue on the
+                // births and deaths of the jobs. Deaths have priority
+                // over births. By popping again and again, we have
+                // our "traversal" from left to right.
                 while let Some(evt) = evts.pop()  {
                     match evt.evt_t {
                         EventKind::Birth    => {
@@ -124,14 +128,14 @@ impl Instance {
 
     /// Merges `self` with another [Instance].
     pub fn merge_with(&mut self, mut other: Self) {
-        let all: Vec<Rc<Job>> = self
+        let all: Vec<Arc<Job>> = self
             .jobs
             .iter()
             .chain(other.jobs.iter())
             .cloned()
             .sorted_unstable()
             .collect();
-        self.jobs = Rc::new(all);
+        self.jobs = Arc::new(all);
         self.info.load = None;
         let (this_min, this_max) = self.min_max_height();
         let (that_min, that_max) = other.min_max_height();

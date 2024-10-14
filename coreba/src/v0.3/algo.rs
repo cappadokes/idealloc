@@ -70,8 +70,29 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 /// a modified [`Instance`] in case of convergence, and
 /// the number of original jobs that this run managed
 /// to box otherwise.
-fn t_16(input: Instance, epsilon: f32) -> Result<Instance, u32> {
-    unimplemented!()
+fn t_16(mut input: Instance, epsilon: f32) -> Result<Instance, u32> {
+    match t_16_cond(&mut input, epsilon) {
+        (true, _, _)    => {
+            let h_max = input.min_max_height().1 as f32;
+            c_15(
+                input,
+                (h_max / epsilon).ceil() as ByteSteps,
+                epsilon,
+            )
+        },
+        (false, mu, h)  => {
+            let target_size = (mu * (h as f32)).ceil() as usize;
+            if target_size < input.min_max_height().0 || target_size == 1 {
+                Err(input.total_originals_boxed())
+            } else {
+                let (x_s, mut x_l) = input.split_by_height(target_size);
+                let small_boxed = c_15(x_s, h, mu)?;
+                // TODO: demystify old impl's check for jobs_boxed.
+                x_l.merge_with(small_boxed);
+                t_16(x_l, epsilon)
+            }
+        }
+    }
 }
 
 /// Checks if Theorem 16 has converged.
@@ -87,6 +108,35 @@ fn t_16_cond(input: &mut Instance, epsilon: f32) -> (bool, f32, ByteSteps) {
         mu,
         (mu.powi(5) * (h_max as f32) / lg2r).ceil() as ByteSteps,
     )
+}
+
+fn c_15(
+    input:      Instance,
+    h:          ByteSteps,
+    epsilon:    f32,
+) -> Result<Instance, u32> {
+    let mut res = Instance::new(vec![]);
+    let buckets = input.make_buckets(epsilon);
+    for (h_i, unit_jobs) in buckets {
+        let h_param = 1.max((h as f32 / h_i as f32).floor() as ByteSteps);
+        let boxed = t_2(unit_jobs, h_param, epsilon, None)?;
+        // TODO: how many hierarchy levels are present after T2?
+        // betalloc assumes just one, because (as below) it changes
+        // only the heights of the OUTER boxes. What's the truth?
+        boxed.change_init_heights(h);
+        res.merge_with(boxed);
+    }
+
+    Ok(res)
+}
+
+fn t_2(
+    mut input:  Instance,
+    h:          ByteSteps,
+    epsilon:    f32,
+    ctrl:       Option<()>,
+) -> Result<Instance, u32> {
+    unimplemented!()
 }
 
 // The following operations are considered

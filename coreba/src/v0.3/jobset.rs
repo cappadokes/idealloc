@@ -71,7 +71,7 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
         // parameter, *or* we could wait until `Vec`'s [`is_sorted`](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.is_sorted)
         // method gets stabilized.
         .sorted_unstable()
-        .map(|x| Rc::new(x))
+        .map(|x| Arc::new(x))
         .collect())
 }
 
@@ -84,7 +84,7 @@ pub enum EventKind {
 
 #[derive(Eq)]
 pub struct Event {
-    pub job:    Rc<Job>,
+    pub job:    Arc<Job>,
     pub evt_t:  EventKind,
     // Copy time here to elude pattern matching during
     // comparison.

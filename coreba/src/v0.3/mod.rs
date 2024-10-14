@@ -62,6 +62,6 @@ pub struct Job {
 pub struct Instance {
     // To avoid expensive allocations when cloning at the
     // beginning of each next iteration.
-    jobs: Rc<JobSet>,
+    jobs: Arc<JobSet>,
     info: instance::Info,
 }

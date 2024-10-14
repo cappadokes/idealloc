@@ -1,5 +1,5 @@
 pub use std::{
-    rc::Rc,
+    sync::Arc,
     io::{BufRead, BufReader},
     cell::Cell,
     collections::{HashMap, BinaryHeap},
@@ -26,7 +26,7 @@ pub type ByteSteps = usize;
 ///
 /// This is arguably the most commonly occuring abstraction in
 /// `idealloc`.
-pub type JobSet = Vec<Rc<Job>>;
+pub type JobSet = Vec<Arc<Job>>;
 // A lot could be written about our decision to go with `Rc` here. In
 // an ideal world, we would avoid the reference-counting overhead with
 // a simple, safe way to do self-referential types.

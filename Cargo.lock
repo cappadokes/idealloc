@@ -181,6 +181,7 @@ name = "coreba"
 version = "0.62.0"
 dependencies = [
  "itertools",
+ "rayon",
  "thiserror",
 ]
 
