@@ -54,11 +54,10 @@ fn t_16(mut input: Instance, epsilon: f32) -> Instance {
         (false, mu, h)  => {
             let target_size = (mu * (h as f32)).ceil() as usize;
             assert!(target_size > input.min_max_height().0, "ε-convergence can't be avoided after all.");
-            let (x_s, mut x_l) = input.split_by_height(target_size);
+            let (x_s, x_l) = input.split_by_height(target_size);
             let small_boxed = c_15(x_s, h, mu);
             // TODO: demystify old impl's check for jobs_boxed.
-            x_l.merge_with(small_boxed);
-            t_16(x_l, epsilon)
+            t_16(x_l.merge_with(small_boxed), epsilon)
         }
     }
 }
@@ -107,7 +106,7 @@ fn c_15(
             // betalloc assumes just one, because (as below) it changes
             // only the heights of the OUTER boxes. What's the truth?
             let mut guard = res.lock().unwrap();                
-            guard.merge_with(boxed);
+            guard.merge_via_ref(boxed);
     });
 
     match Arc::into_inner(res) {
@@ -150,6 +149,8 @@ impl T2Control {
         left: ByteSteps, 
         right: ByteSteps
     ) -> ByteSteps {
+        // What follows is the simplest, most naive, but also
+        // most safe implementation of `gen_crit`.
         use rand::{Rng, thread_rng};
 
         // Rust ranges (x..y) are low-inclusive, upper-exclusive.
@@ -172,9 +173,12 @@ fn t_2(
     ctrl:       Option<T2Control>,
 ) -> Instance {
     let mut res = Instance::new(vec![]);
+    let mut all_unresolved = Instance::new(vec![]);
 
     let ctrl = if let Some(v) = ctrl { v }
     else { T2Control::new(&input) };
+
+    let (r_coarse, x_coarse) = input.split_by_liveness(&ctrl.critical_points);
 
     unimplemented!()
 }

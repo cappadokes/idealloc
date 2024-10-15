@@ -145,14 +145,50 @@ impl Instance {
     /// Splits an [Instance] into two new instances, the first
     /// containing jobs of TRUE size up to `ceil`.
     pub fn split_by_height(self, ceil: ByteSteps) -> (Self, Self) {
-        let (small, high) = self
-            .jobs
-            .iter()
-            .cloned()
-            .partition(|j| j.size <= ceil);
+        let (small, high) = match Arc::try_unwrap(self.jobs) {
+            Ok(v) => {
+                // If the `Arc` can be unwrapped, we save one
+                // round of atomic ref count updates.
+                v.into_iter()
+                    .partition(|j| j.size <= ceil)
+            },
+            Err(v)    => {
+                v.iter()
+                .cloned()
+                .partition(|j| j.size <= ceil)
+            }
+        };
 
         // TODO: assert that the two collections preserve sorting!
         (Self::new(small), Self::new(high))
+    }
+
+    /// Splits an [Instance] into two new instances, the first
+    /// containing jobs that are live in at least one moment of those
+    /// in `pts`.
+    pub fn split_by_liveness(self, pts: &BTreeSet<ByteSteps>) -> (Self, Self) {
+        let (live, non_live) = match Arc::try_unwrap(self.jobs) {
+            Ok(v) => {
+                // If the `Arc` can be unwrapped, we save one
+                // round of atomic ref count updates.
+                v.into_iter()
+                    .partition(|j| {
+                        pts.iter()
+                            .any(|t| { j.is_live_at(*t) })
+                    })
+            },
+            Err(v)    => {
+                v.iter()
+                .cloned()
+                .partition(|j| {
+                    pts.iter()
+                        .any(|t| { j.is_live_at(*t) })
+                })
+            }
+        };
+
+        // TODO: assert that the two collections preserve sorting!
+        (Self::new(live), Self::new(non_live))
     }
 
     /// Counts how many of the *ORIGINAL* buffers have
@@ -162,9 +198,37 @@ impl Instance {
     }
 
     /// Merges `self` with another [Instance].
-    pub fn merge_with(&mut self, mut other: Self) {
-        let all: Vec<Arc<Job>> = self
-            .jobs
+    pub fn merge_with(mut self, mut other: Self) -> Self {
+        let all: Vec<Arc<Job>> = match Arc::try_unwrap(self.jobs) {
+            Ok(v) => {
+                v.into_iter()
+                    .chain(other.jobs
+                        .iter()
+                        .cloned()
+                    ).sorted_unstable()
+                    .collect()
+            },
+            Err(arc)    => {
+                arc.iter()
+                .chain(other.jobs.iter())
+                .cloned()
+                .sorted_unstable()
+                .collect()
+            }
+        };
+        self.jobs = Arc::new(all);
+        self.info.load = None;
+        let (this_min, this_max) = self.min_max_height();
+        let (that_min, that_max) = other.min_max_height();
+        self.info.min_max_height = Some((this_min.min(that_min), this_max.max(that_max)));
+
+        self
+    }
+
+    /// Does the same as [`Instance::merge_with`], but without consuming
+    /// `self`. Used in the context of consolidating `Mutex`-protected results.
+    pub fn merge_via_ref(&mut self, mut other: Self) {
+        let all: Vec<Arc<Job>> = self.jobs
             .iter()
             .chain(other.jobs.iter())
             .cloned()
