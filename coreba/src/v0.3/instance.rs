@@ -26,8 +26,25 @@ impl Instance {
     /// Applies Buchsbaum et al.'s Corollary 17.
     /// As far as floating point values go, we adopt
     /// 32bit-wide ones all across the project.
+    /// 
+    /// If C17 proves invalid for the current instance,
+    /// configures ε so as to ensure convergence of the main loop.
     pub fn init_e(&mut self) -> f32 {
-        (self.min_max_height().1 as f32 / self.load() as f32).powf(1.0 / 7.0)
+        let (h_min, h_max) = self.min_max_height();
+        let test = (h_min as f32 / self.load() as f32).powf(1.0 / 7.0);
+        let r = h_max as f32 / h_min as f32;
+
+        if test.powi(5) > (r.log2().powi(12)) / r {
+            // This is C17. The condition stems from
+            // T16's "H" (see paper), which must be
+            // bigger than the instance's minimum height.
+            test
+        } else {
+            // This is our own hack. We take the above
+            // condition and apply the FOURTH instead
+            // of the fifth root.
+            (r.log2().powi(12) / r).powf(1.0 / 4.0)
+        }
     }
 
     /// Calculates the makespan.

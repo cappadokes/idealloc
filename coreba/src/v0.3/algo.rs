@@ -21,12 +21,14 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
                 // We reach this point only when all
                 // original jobs have been boxed.
                 println!("ε-convergence: {}", start.elapsed().as_micros());
-                input.restore_heights();
+                // Get these height restoration primitives out once you've
+                // made sure that you can proceed only with TRUE sizes.
+                //input.restore_heights();
                 break b;
             }
             Err(jobs_boxed) => {
                 epsilon.update(jobs_boxed);
-                input.restore_heights();
+                //input.restore_heights();
             }
         }
     };
@@ -50,7 +52,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
             // that ε has been stabilized.
             .unwrap()
             .unbox();
-        input.restore_heights();
+        //input.restore_heights();
         input.tighten();
         let current_opt = input.opt();
         if current_opt < best_opt {
@@ -82,7 +84,7 @@ fn t_16(mut input: Instance, epsilon: f32) -> Result<Instance, u32> {
         },
         (false, mu, h)  => {
             let target_size = (mu * (h as f32)).ceil() as usize;
-            if target_size < input.min_max_height().0 || target_size == 1 {
+            if target_size <= input.min_max_height().0 {
                 Err(input.total_originals_boxed())
             } else {
                 let (x_s, mut x_l) = input.split_by_height(target_size);
@@ -100,6 +102,7 @@ fn t_16_cond(input: &mut Instance, epsilon: f32) -> (bool, f32, ByteSteps) {
     let (h_min, h_max) = input.min_max_height();
     let r = h_max as f32 / h_min as f32;
 
+    //let lg2r = r.log2().powi(2);
     let lg2r = r.log2().powi(2);
     let mu = epsilon / lg2r;
 
@@ -115,13 +118,17 @@ fn c_15(
     h:          ByteSteps,
     epsilon:    f32,
 ) -> Result<Instance, u32> {
+    // Core assumption of Corollary 15: heights of all jobs
+    // are at most ε*h. Boxes returned are size h, that is, BIGGER
+    // than their contents. ε must thus be < 1.
+    assert!(epsilon < 1.0);
+
     use rayon::prelude::*;
     use std::sync::Mutex;
 
     let res = Arc::new(Mutex::new(Instance::new(vec![])));
-    let buckets = input.make_buckets(epsilon);
-    //let mut v: HashMap<usize, usize> = HashMap::new();
-    buckets.into_par_iter()
+    input.make_buckets(epsilon)
+        .into_par_iter()
         .for_each(|(h_i, unit_jobs)| {
         let h_param = 1.max((h as f32 / h_i as f32).floor() as ByteSteps);
         match t_2(unit_jobs, h_param, epsilon, None) {
@@ -183,16 +190,19 @@ impl Instance {
     /// by the height to be given to Theorem 2.
     fn make_buckets(self, epsilon: f32) -> HashMap<ByteSteps, Instance> {
         let mut res = HashMap::new();
+        let mut prev_floor = 1.0;
         let mut i = 1;
         let mut source = self;
         while source.jobs.len() > 0 {
-            let h = (1.0 + epsilon).powi(i).floor() as ByteSteps;
-            if source.jobs.iter().any(|j| j.size <= h) {
+            let h = (1.0 + epsilon).powi(i);
+            if source.jobs.iter().any(|j| j.size as f32 > prev_floor && j.size as f32 <= h) {
+                let h = h.floor() as ByteSteps;
                 let (toward_bucket, rem) = source.split_by_height(h);
-                toward_bucket.change_current_heights(1);
+                //toward_bucket.change_current_heights(1);
                 res.insert(h, toward_bucket);
                 source = rem;
             }
+            prev_floor = h;
             i += 1;
         }
 
