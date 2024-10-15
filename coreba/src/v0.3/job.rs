@@ -25,12 +25,15 @@ impl Job {
     /// many offsets are computed per job, and eventually
     /// those yielding the smallest makespan are chosen.
     pub fn upd_off(&self) {
+        /*
         let plc = self.home.as_ptr();
         unsafe {
             // I need the `unsafe` in order to change the offset
             // in-place instead of copying and re-setting stuff.
             (*plc).offset.replace((*plc).curr_offset.unwrap());
         }
+        */
+        unimplemented!()
     }
 
     /// Returns the total number of discrete logical time units
@@ -63,12 +66,6 @@ impl Ord for Job {
 impl PartialOrd for Job {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Job {
-    fn eq(&self, other: &Self) -> bool {
-        self.birth == other.birth
     }
 }
 //-----TREATING GROUPS OF JOBS (END)---------------------

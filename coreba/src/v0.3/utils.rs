@@ -1,7 +1,6 @@
 pub use std::{
     sync::Arc,
     io::{BufRead, BufReader},
-    cell::Cell,
     collections::{HashMap, BinaryHeap},
     path::PathBuf,
 };
@@ -27,9 +26,7 @@ pub type ByteSteps = usize;
 /// This is arguably the most commonly occuring abstraction in
 /// `idealloc`.
 pub type JobSet = Vec<Arc<Job>>;
-// A lot could be written about our decision to go with `Rc` here. In
-// an ideal world, we would avoid the reference-counting overhead with
-// a simple, safe way to do self-referential types.
+// `Arc` is needed for parallelism.
 
 /// The boxing procedure is governed by
 /// this floating-point value.
@@ -149,16 +146,11 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
 
     fn gen_single(&self, d: &[ByteSteps; 3]) -> Job {
         Job {
-            size:               Cell::new(d[2]),
+            size:               d[2],
             birth:              d[0],
             death:              d[1],
-            home:               Cell::new(crate::space::Placement {
-                req_size:       d[2],
-                alloc_size:     d[2],
-                offset:         None,
-                curr_offset:    None,
-                alignment:      None,
-            }),
+            req_size:           d[2],
+            alignment:          None,
             contents:           None,
             originals_boxed:    0,
         }        

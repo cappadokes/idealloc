@@ -15,14 +15,14 @@ use crate::utils::*;
 /// This function is the gatekeeper to the rest of the library.
 pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
     for (idx, j) in in_elts.iter_mut().enumerate() {
-        if j.size.get() == 0 {
+        if j.size == 0 {
             return Err(JobError {
                 message: String::from("Job with 0 size found!"),
                 culprit: in_elts.remove(idx),
             });
-        } else if j.size.get() != j.home.get().alloc_size {
+        } else if j.size != j.req_size {
             return Err(JobError {
-                message: String::from("Job with disagreeing current/alloc size found!"),
+                message: String::from("Job with disagreeing req/alloc size found!"),
                 culprit: in_elts.remove(idx),
             });
         } else if j.birth >= j.death {
@@ -35,7 +35,7 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
                 message: String::from("Job with lifetime < 2 found!"),
                 culprit: in_elts.remove(idx),
             });
-        } else if let Some(a) = j.home.get().alignment {
+        } else if let Some(a) = j.alignment {
             if a == 0 {
                 return Err(JobError {
                     message: String::from("Job with 0 alignment found!"),
@@ -52,7 +52,7 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
                 message: String::from("Unoriginal job found! (non-zero originals_boxed)"),
                 culprit: in_elts.remove(idx),
             });
-        } else if j.home.get().req_size > j.home.get().alloc_size {
+        } else if j.size < j.req_size {
             return Err(JobError {
                 message: String::from("Job with req > alloc size found!"),
                 culprit: in_elts.remove(idx),

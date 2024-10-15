@@ -53,13 +53,13 @@ impl Instance {
                 while let Some(evt) = evts.pop()  {
                     match evt.evt_t {
                         EventKind::Birth    => {
-                            running += evt.job.size.get();
+                            running += evt.job.size;
                             if running > max {
                                 max = running;
                             }
                         },
                         EventKind::Death    => {
-                            if let Some(v) = running.checked_sub(evt.job.size.get()) {
+                            if let Some(v) = running.checked_sub(evt.job.size) {
                                 running = v;
                             } else {
                                 panic!("Almost overflowed load!");
@@ -77,10 +77,11 @@ impl Instance {
     /// Runs in case a better solution has been found and
     /// updates input job offsets accordingly.
     pub fn update_offsets(&self) {
-        self.jobs.iter().for_each(|j| j.upd_off());
+        unimplemented!()
+        //self.jobs.iter().for_each(|j| j.upd_off());
     }
 
-    /// Returns the minimum and maximum CURRENT height over the
+    /// Returns the minimum and maximum TRUE height over the
     /// instance's jobs.
     pub fn min_max_height(&mut self) -> (ByteSteps, ByteSteps) {
         match self.info.min_max_height {
@@ -89,7 +90,7 @@ impl Instance {
                 let res = self.jobs.iter().fold(
                     (ByteSteps::MAX, ByteSteps::MIN),
                     |(mut min, mut max), j| {
-                        let curr = j.size.get();
+                        let curr = j.size;
                         if curr < min {
                             min = curr;
                         }
@@ -108,13 +109,13 @@ impl Instance {
     }
 
     /// Splits an [Instance] into two new instances, the first
-    /// containing jobs of CURRENT size up to `ceil`.
+    /// containing jobs of TRUE size up to `ceil`.
     pub fn split_by_height(self, ceil: ByteSteps) -> (Self, Self) {
         let (small, high) = self
             .jobs
             .iter()
             .cloned()
-            .partition(|j| j.size.get() <= ceil);
+            .partition(|j| j.size <= ceil);
 
         // TODO: assert that the two collections preserve sorting!
         (Self::new(small), Self::new(high))
@@ -144,6 +145,7 @@ impl Instance {
 
     /// Restores current sizes to the original ones.
     pub fn restore_heights(&self) {
+        /*
         if self.jobs.iter().any(|j| {
             // No reason to overwrite everything if
             // it's already good.
@@ -153,23 +155,31 @@ impl Instance {
                 j.size.set(j.home.get().alloc_size);
             });
         }
+        */
+        unimplemented!()
     }
 
     /// Changes current sizes to `h`.
     pub fn change_current_heights(&self, h: ByteSteps) {
+        /*(
         self.jobs.iter().for_each(|j| {
             j.size.set(h);
         });
+        */
+        unimplemented!()
     }
 
     /// Changes INITIAL sizes to `h`, and sets current
     /// size accordingly.
     pub fn change_init_heights(&self, h: ByteSteps) {
+        /*
         self.jobs.iter().for_each(|j| {
             let mut new_home = j.home.get();
             new_home.alloc_size = h;
             j.home.replace(new_home);
             j.size.set(h);
         });
+        */
+        unimplemented!()
     }
 }

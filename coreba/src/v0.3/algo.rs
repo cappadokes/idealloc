@@ -115,19 +115,44 @@ fn c_15(
     h:          ByteSteps,
     epsilon:    f32,
 ) -> Result<Instance, u32> {
-    let mut res = Instance::new(vec![]);
+    use rayon::prelude::*;
+    use std::sync::Mutex;
+
+    let res = Arc::new(Mutex::new(Instance::new(vec![])));
     let buckets = input.make_buckets(epsilon);
-    for (h_i, unit_jobs) in buckets {
+    //let mut v: HashMap<usize, usize> = HashMap::new();
+    buckets.into_par_iter()
+        .for_each(|(h_i, unit_jobs)| {
         let h_param = 1.max((h as f32 / h_i as f32).floor() as ByteSteps);
-        let boxed = t_2(unit_jobs, h_param, epsilon, None)?;
-        // TODO: how many hierarchy levels are present after T2?
-        // betalloc assumes just one, because (as below) it changes
-        // only the heights of the OUTER boxes. What's the truth?
+        match t_2(unit_jobs, h_param, epsilon, None) {
+            Ok(boxed)   => {
+                // TODO: how many hierarchy levels are present after T2?
+                // betalloc assumes just one, because (as below) it changes
+                // only the heights of the OUTER boxes. What's the truth?
+                let mut guard = res.lock().unwrap();                
+                guard.merge_with(boxed);
+            },
+            Err(_j)  => {
+                unimplemented!();
+            }
+        }
+    });
+    /*
         boxed.change_init_heights(h);
         res.merge_with(boxed);
     }
-
-    Ok(res)
+    */
+    match Arc::into_inner(res) {
+        Some(v) => {
+            Ok(v.into_inner().unwrap())
+        },
+        None    => {
+            // This shouldn't happen because all threads
+            // should have finished by now, and hence `res`
+            // should only have one strong reference.
+            panic!("Could not unwrap Arc!");
+        }
+    }
 }
 
 fn t_2(
@@ -162,7 +187,7 @@ impl Instance {
         let mut source = self;
         while source.jobs.len() > 0 {
             let h = (1.0 + epsilon).powi(i).floor() as ByteSteps;
-            if source.jobs.iter().any(|j| j.size.get() <= h) {
+            if source.jobs.iter().any(|j| j.size <= h) {
                 let (toward_bucket, rem) = source.split_by_height(h);
                 toward_bucket.change_current_heights(1);
                 res.insert(h, toward_bucket);
