@@ -51,7 +51,7 @@ pub struct Job {
     /// that contain nothing and "spawned" jobs that contain at least one
     /// job. "Everything is a [`Job`]."
     contents:           Option<JobSet>,
-    // Used during calibrating epsilon.
+    // Used for debugging mostly.
     originals_boxed:    u32,
 }
 

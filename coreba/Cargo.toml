@@ -13,6 +13,7 @@ version = "0.62.0"
 itertools   = { workspace = true }
 thiserror   = { workspace = true }
 rayon       = { workspace = true }
+rand        = { workspace = true }
 
 [lib]
 path    = "src/v0.3/mod.rs"

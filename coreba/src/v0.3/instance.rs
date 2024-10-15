@@ -23,6 +23,23 @@ impl Instance {
         }
     }
 
+    /// Returns (smallest birth, largest death).
+    pub fn get_horizon(&self) -> (ByteSteps, ByteSteps) {
+        (
+            // Assuming that the jobs are sorted, smallest
+            // birth is always at the first spot.
+            self.jobs
+                .first()
+                .unwrap()
+                .birth,
+            self.jobs
+                .iter()
+                .map(|j| { j.death })
+                .max()
+                .unwrap()
+        )
+    }
+
     /// Applies Buchsbaum et al.'s Corollary 17.
     /// As far as floating point values go, we adopt
     /// 32bit-wide ones all across the project.

@@ -10,15 +10,18 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
     let mut input = Instance::new(input);
     let mut iters_done = 0;
     let mut best_opt = ByteSteps::MAX;
+    let jobs_num_to_box = input.jobs.len() as u32;
 
-    // We time the different phases, both for debugging
-    // and because we find it interesting.
+    // Measure total allocation time.
     let total_start = Instant::now();
     let epsilon = Epsilon::new(&mut input);
 
     // Early stop in case of stumbling on perfect solution
     while iters_done < max_iters && best_opt > input.load() {
         let boxed = t_16(input.clone(), epsilon.val);
+        debug_assert!(boxed.total_originals_boxed() == jobs_num_to_box, "Invalid boxing!");
+        // TODO: Time unboxing/tightening withing placement func
+        // if you're still interested!
         let placed = boxed.place();
         let current_opt = placed.opt();
         if current_opt < best_opt {
@@ -50,15 +53,12 @@ fn t_16(mut input: Instance, epsilon: f32) -> Instance {
         },
         (false, mu, h)  => {
             let target_size = (mu * (h as f32)).ceil() as usize;
-            if target_size <= input.min_max_height().0 {
-                panic!("ε-convergence can't be avoided after all.");
-            } else {
-                let (x_s, mut x_l) = input.split_by_height(target_size);
-                let small_boxed = c_15(x_s, h, mu);
-                // TODO: demystify old impl's check for jobs_boxed.
-                x_l.merge_with(small_boxed);
-                t_16(x_l, epsilon)
-            }
+            assert!(target_size > input.min_max_height().0, "ε-convergence can't be avoided after all.");
+            let (x_s, mut x_l) = input.split_by_height(target_size);
+            let small_boxed = c_15(x_s, h, mu);
+            // TODO: demystify old impl's check for jobs_boxed.
+            x_l.merge_with(small_boxed);
+            t_16(x_l, epsilon)
         }
     }
 }
@@ -68,7 +68,6 @@ fn t_16_cond(input: &mut Instance, epsilon: f32) -> (bool, f32, ByteSteps) {
     let (h_min, h_max) = input.min_max_height();
     let r = h_max as f32 / h_min as f32;
 
-    //let lg2r = r.log2().powi(2);
     let lg2r = r.log2().powi(2);
     let mu = epsilon / lg2r;
 
@@ -92,6 +91,9 @@ fn c_15(
     use rayon::prelude::*;
     use std::sync::Mutex;
 
+    // Each bucket can be treated independently.
+    // Embarassingly parallel operation. Consolidate
+    // a Mutex-protected Instance.
     let res = Arc::new(Mutex::new(Instance::new(vec![])));
     input.make_buckets(epsilon)
         .into_par_iter()
@@ -121,12 +123,59 @@ fn c_15(
     }
 }
 
+/// Helper structure for Theorem 2.
+struct T2Control {
+    bounding_interval:  (ByteSteps, ByteSteps),
+    critical_points:    BTreeSet<ByteSteps>,
+}
+
+impl T2Control {
+    fn new(jobs: &Instance) -> Self {
+        let (start, end) = jobs.get_horizon();
+        let mut critical_points = BTreeSet::new();
+        critical_points.insert(start);
+        assert!(critical_points.insert(end), "Same-ends horizon met.");
+        critical_points.insert(Self::gen_crit(jobs, start, end));
+
+        Self {
+            bounding_interval:  (start, end),
+            critical_points
+        }
+    }
+
+    /// Generates a random number within (left, right) at which
+    /// at least one piece in `jobs` is live.
+    fn gen_crit(
+        jobs: &Instance, 
+        left: ByteSteps, 
+        right: ByteSteps
+    ) -> ByteSteps {
+        use rand::{Rng, thread_rng};
+
+        // Rust ranges (x..y) are low-inclusive, upper-exclusive.
+        assert!(left + 1 < right, "Bad range found.");
+        loop {
+            let t = thread_rng().gen_range(left + 1 .. right);
+            if jobs.jobs
+                .iter()
+                .any(|j| j.is_live_at(t) ) {
+                    break t;
+            }
+        }
+    }
+}
+
 fn t_2(
     mut input:  Instance,
     h:          ByteSteps,
     epsilon:    f32,
-    ctrl:       Option<()>,
+    ctrl:       Option<T2Control>,
 ) -> Instance {
+    let mut res = Instance::new(vec![]);
+
+    let ctrl = if let Some(v) = ctrl { v }
+    else { T2Control::new(&input) };
+
     unimplemented!()
 }
 
