@@ -48,7 +48,7 @@ impl Instance {
     }
 
     /// Calculates the makespan.
-    pub fn opt(&mut self) -> ByteSteps {
+    pub fn opt(&self) -> ByteSteps {
         unimplemented!()
     }
 

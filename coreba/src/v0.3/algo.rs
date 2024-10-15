@@ -4,57 +4,23 @@ use crate::utils::*;
 /// number of times. At the end the jobs in `input` have
 /// received placement offsets.
 pub fn main_loop(input: JobSet, max_iters: u32) {
+    use std::time::Instant;
+
+    // Initializations...
     let mut input = Instance::new(input);
+    let mut iters_done = 0;
+    let mut best_opt = ByteSteps::MAX;
+
     // We time the different phases, both for debugging
     // and because we find it interesting.
-    use std::time::Instant;
-    let total_start;
-    let mut start = Instant::now();
+    let total_start = Instant::now();
+    let epsilon = Epsilon::new(&mut input);
 
-    // First thing to do is stabilize epsilon.
-    // As a by-product, ε-initialization fleshes out the
-    // input's info (max load, min/max height).
-    let mut epsilon = Epsilon::new(&mut input);
-    let boxes = loop {
-        match t_16(input.clone(), epsilon.val) {
-            Ok(b) => {
-                // We reach this point only when all
-                // original jobs have been boxed.
-                println!("ε-convergence: {}", start.elapsed().as_micros());
-                // Get these height restoration primitives out once you've
-                // made sure that you can proceed only with TRUE sizes.
-                //input.restore_heights();
-                break b;
-            }
-            Err(jobs_boxed) => {
-                epsilon.update(jobs_boxed);
-                //input.restore_heights();
-            }
-        }
-    };
-    total_start = start;
-    start = Instant::now();
-
-    // Produce initial set of offsets. They are inscribed to
-    // the jobs of the input, which are still available.
-    boxes.unbox();
-    println!("1 unboxing iteration: {} μs", start.elapsed().as_micros());
-    start = Instant::now();
-    input.tighten();
-    println!("1 tightening iteration: {} μs", start.elapsed().as_micros());
-
-    let mut iters_done = 1;
-    let mut best_opt = input.opt();
     // Early stop in case of stumbling on perfect solution
     while iters_done < max_iters && best_opt > input.load() {
-        t_16(input.clone(), epsilon.val)
-            // No danger of panicking in here given
-            // that ε has been stabilized.
-            .unwrap()
-            .unbox();
-        //input.restore_heights();
-        input.tighten();
-        let current_opt = input.opt();
+        let boxed = t_16(input.clone(), epsilon.val);
+        let placed = boxed.place();
+        let current_opt = placed.opt();
         if current_opt < best_opt {
             best_opt = current_opt;
             input.update_offsets();
@@ -72,7 +38,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 /// a modified [`Instance`] in case of convergence, and
 /// the number of original jobs that this run managed
 /// to box otherwise.
-fn t_16(mut input: Instance, epsilon: f32) -> Result<Instance, u32> {
+fn t_16(mut input: Instance, epsilon: f32) -> Instance {
     match t_16_cond(&mut input, epsilon) {
         (true, _, _)    => {
             let h_max = input.min_max_height().1 as f32;
@@ -85,10 +51,10 @@ fn t_16(mut input: Instance, epsilon: f32) -> Result<Instance, u32> {
         (false, mu, h)  => {
             let target_size = (mu * (h as f32)).ceil() as usize;
             if target_size <= input.min_max_height().0 {
-                Err(input.total_originals_boxed())
+                panic!("ε-convergence can't be avoided after all.");
             } else {
                 let (x_s, mut x_l) = input.split_by_height(target_size);
-                let small_boxed = c_15(x_s, h, mu)?;
+                let small_boxed = c_15(x_s, h, mu);
                 // TODO: demystify old impl's check for jobs_boxed.
                 x_l.merge_with(small_boxed);
                 t_16(x_l, epsilon)
@@ -117,11 +83,11 @@ fn c_15(
     input:      Instance,
     h:          ByteSteps,
     epsilon:    f32,
-) -> Result<Instance, u32> {
+) -> Instance {
     // Core assumption of Corollary 15: heights of all jobs
     // are at most ε*h. Boxes returned are size h, that is, BIGGER
     // than their contents. ε must thus be < 1.
-    assert!(epsilon < 1.0);
+    assert!(epsilon < 1.0, "ε >= 1.0 @ C15!");
 
     use rayon::prelude::*;
     use std::sync::Mutex;
@@ -130,28 +96,21 @@ fn c_15(
     input.make_buckets(epsilon)
         .into_par_iter()
         .for_each(|(h_i, unit_jobs)| {
-        let h_param = 1.max((h as f32 / h_i as f32).floor() as ByteSteps);
-        match t_2(unit_jobs, h_param, epsilon, None) {
-            Ok(boxed)   => {
-                // TODO: how many hierarchy levels are present after T2?
-                // betalloc assumes just one, because (as below) it changes
-                // only the heights of the OUTER boxes. What's the truth?
-                let mut guard = res.lock().unwrap();                
-                guard.merge_with(boxed);
-            },
-            Err(_j)  => {
-                unimplemented!();
-            }
-        }
+            let h_param = (h as f32 / h_i as f32).floor() as ByteSteps;
+            // The below assertion was mostly used out of fear. To be
+            // reconsidered if the rest of the pipeline proves broken.
+            //assert!(h_param > 1, "T2 fed with unit H!");
+            let boxed = t_2(unit_jobs, h_param, epsilon, None);
+            // TODO: how many hierarchy levels are present after T2?
+            // betalloc assumes just one, because (as below) it changes
+            // only the heights of the OUTER boxes. What's the truth?
+            let mut guard = res.lock().unwrap();                
+            guard.merge_with(boxed);
     });
-    /*
-        boxed.change_init_heights(h);
-        res.merge_with(boxed);
-    }
-    */
+
     match Arc::into_inner(res) {
         Some(v) => {
-            Ok(v.into_inner().unwrap())
+            v.into_inner().unwrap()
         },
         None    => {
             // This shouldn't happen because all threads
@@ -167,7 +126,7 @@ fn t_2(
     h:          ByteSteps,
     epsilon:    f32,
     ctrl:       Option<()>,
-) -> Result<Instance, u32> {
+) -> Instance {
     unimplemented!()
 }
 
@@ -175,13 +134,10 @@ fn t_2(
 // parts of the algorithm, so they're put here instead of
 // the file hosting the rest of the impls.
 impl Instance {
-    /// Recursively unboxes and places elements.
-    fn unbox(self) {
-        unimplemented!()
-    }
-
-    /// Tightens already placed elements.
-    fn tighten(&self) {
+    // Unbox and tighten. Probably needs to be
+    // implemented for another type or YIELD
+    // another type.
+    fn place(self) -> Self {
         unimplemented!()
     }
 
@@ -198,7 +154,6 @@ impl Instance {
             if source.jobs.iter().any(|j| j.size as f32 > prev_floor && j.size as f32 <= h) {
                 let h = h.floor() as ByteSteps;
                 let (toward_bucket, rem) = source.split_by_height(h);
-                //toward_bucket.change_current_heights(1);
                 res.insert(h, toward_bucket);
                 source = rem;
             }
