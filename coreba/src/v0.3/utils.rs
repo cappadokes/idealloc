@@ -34,9 +34,9 @@ pub type JobSet = Vec<Arc<Job>>;
 /// It is the ε in the "2+ε" bound provided
 /// by Buchsbaum et al.
 pub struct Epsilon {
-    pub val:    f32,
+    pub val:    f64,
     last:       u32,
-    limit:      f32,
+    limit:      f64,
 }
 
 impl Epsilon {

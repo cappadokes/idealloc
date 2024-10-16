@@ -15,6 +15,18 @@ fn read_from_path(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> {
     Ok(set)
 }
 
+// All of the following tests ensure that the code written up to now
+// is problematic only in the sense of it being incomplete. The existing
+// functionality is correct.
+//
+// To be replaced in the future with one big test.
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_a() {
+    let set = read_from_path("tests/data/A.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_pangu() {
@@ -40,5 +52,103 @@ fn run_tiny() {
 #[should_panic(expected = "not implemented")]
 fn run_toy() {
     let set = read_from_path("tests/data/non_existent.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_pangu_small() {
+    let set = read_from_path("tests/data/pangu_13B.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_bert_base() {
+    let set = read_from_path("tests/data/bert_base.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_bert_large() {
+    let set = read_from_path("tests/data/bert_large.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_resnet() {
+    let set = read_from_path("tests/data/resnet50.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_b() {
+    let set = read_from_path("tests/data/B.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_c() {
+    let set = read_from_path("tests/data/C.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_d() {
+    let set = read_from_path("tests/data/D.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_e() {
+    let set = read_from_path("tests/data/E.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_i() {
+    let set = read_from_path("tests/data/I.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_j() {
+    let set = read_from_path("tests/data/J.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_k() {
+    let set = read_from_path("tests/data/K.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_f() {
+    let set = read_from_path("tests/data/F.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_g() {
+    let set = read_from_path("tests/data/G.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_h() {
+    let set = read_from_path("tests/data/H.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }

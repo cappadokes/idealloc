@@ -48,21 +48,34 @@ impl Instance {
     /// 
     /// If C17 proves invalid for the current instance,
     /// configures ε so as to ensure convergence of the main loop.
-    pub fn init_e(&mut self) -> f32 {
+    pub fn init_e(&mut self) -> f64 {
         let (h_min, h_max) = self.min_max_height();
-        let test = (h_min as f32 / self.load() as f32).powf(1.0 / 7.0);
-        let r = h_max as f32 / h_min as f32;
+        let res = (h_min as f64 / self.load() as f64).powf(1.0 / 7.0);
+        let r = h_max as f64 / h_min as f64;
+        let lgr = r.log2();
 
-        if test.powi(5) > (r.log2().powi(12)) / r {
-            // This is C17. The condition stems from
-            // T16's "H" (see paper), which must be
-            // bigger than the instance's minimum height.
-            test
+        if lgr.powi(2) < 1.0 / res {
+            res
         } else {
-            // This is our own hack. We take the above
-            // condition and apply the FOURTH instead
-            // of the fifth root.
-            (r.log2().powi(12) / r).powf(1.0 / 4.0)
+            let mu = res / lgr.powi(2);
+            let h_cap = (mu.powi(5) * h_max as f64 / lgr.powi(2)).ceil();
+            let target_size = (mu * h_cap).floor();
+            // This is the condition which ensures convergence (for now...).
+            if target_size > h_min as f64 && mu < 1.0 {
+                res
+            } else {
+                // Watch out for overflow.
+                if h_min > 3 {
+                    assert!(((lgr.powi(2) * (h_min - 3) as f64) / h_max as f64) < 1.0, "No solution exists");
+                }
+                let small_end = 0.0_f64.max(lgr.powi(14) * (h_min as f64 - 3.0) / h_max as f64);
+                let big_end = lgr.powi(12);
+
+                // Beginning from the aforementioned condition and
+                // solving for ε ends up in the inequality
+                // small_end < ε^6 < big_end. 
+                ((big_end - small_end) / 2.0 + small_end).powf(1.0 / 6.0)
+            }
         }
     }
 

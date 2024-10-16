@@ -41,10 +41,10 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 /// a modified [`Instance`] in case of convergence, and
 /// the number of original jobs that this run managed
 /// to box otherwise.
-fn t_16(mut input: Instance, epsilon: f32) -> Instance {
+fn t_16(mut input: Instance, epsilon: f64) -> Instance {
     match t_16_cond(&mut input, epsilon) {
         (true, _, _)    => {
-            let h_max = input.min_max_height().1 as f32;
+            let h_max = input.min_max_height().1 as f64;
             c_15(
                 input,
                 (h_max / epsilon).ceil() as ByteSteps,
@@ -52,7 +52,7 @@ fn t_16(mut input: Instance, epsilon: f32) -> Instance {
             )
         },
         (false, mu, h)  => {
-            let target_size = (mu * (h as f32)).ceil() as usize;
+            let target_size = (mu * (h as f64)).floor() as usize;
             assert!(target_size > input.min_max_height().0, "ε-convergence can't be avoided after all.");
             let (x_s, x_l) = input.split_by_height(target_size);
             let small_boxed = c_15(x_s, h, mu);
@@ -63,9 +63,9 @@ fn t_16(mut input: Instance, epsilon: f32) -> Instance {
 }
 
 /// Checks if Theorem 16 has converged.
-fn t_16_cond(input: &mut Instance, epsilon: f32) -> (bool, f32, ByteSteps) {
+fn t_16_cond(input: &mut Instance, epsilon: f64) -> (bool, f64, ByteSteps) {
     let (h_min, h_max) = input.min_max_height();
-    let r = h_max as f32 / h_min as f32;
+    let r = h_max as f64 / h_min as f64;
 
     let lg2r = r.log2().powi(2);
     let mu = epsilon / lg2r;
@@ -73,14 +73,14 @@ fn t_16_cond(input: &mut Instance, epsilon: f32) -> (bool, f32, ByteSteps) {
     (
         lg2r < 1.0 / epsilon,
         mu,
-        (mu.powi(5) * (h_max as f32) / lg2r).ceil() as ByteSteps,
+        (mu.powi(5) * (h_max as f64) / lg2r).ceil() as ByteSteps,
     )
 }
 
 fn c_15(
     input:      Instance,
     h:          ByteSteps,
-    epsilon:    f32,
+    epsilon:    f64,
 ) -> Instance {
     // Core assumption of Corollary 15: heights of all jobs
     // are at most ε*h. Boxes returned are size h, that is, BIGGER
@@ -170,7 +170,7 @@ impl T2Control {
 fn t_2(
     mut input:  Instance,
     h:          ByteSteps,
-    epsilon:    f32,
+    epsilon:    f64,
     ctrl:       Option<T2Control>,
 ) -> Instance {
     let mut res = Instance::new(vec![]);
@@ -199,14 +199,14 @@ impl Instance {
     /// Splits instance to unit-height buckets, in the
     /// context of Corollary 15. Each bucket is indexed
     /// by the height to be given to Theorem 2.
-    fn make_buckets(self, epsilon: f32) -> HashMap<ByteSteps, Instance> {
+    fn make_buckets(self, epsilon: f64) -> HashMap<ByteSteps, Instance> {
         let mut res = HashMap::new();
         let mut prev_floor = 1.0;
         let mut i = 1;
         let mut source = self;
         while source.jobs.len() > 0 {
             let h = (1.0 + epsilon).powi(i);
-            if source.jobs.iter().any(|j| j.size as f32 > prev_floor && j.size as f32 <= h) {
+            if source.jobs.iter().any(|j| j.size as f64 > prev_floor && j.size as f64 <= h) {
                 let h = h.floor() as ByteSteps;
                 let (toward_bucket, rem) = source.split_by_height(h);
                 res.insert(h, toward_bucket);
