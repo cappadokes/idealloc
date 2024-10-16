@@ -1,3 +1,5 @@
+use core::panic;
+
 use crate::utils::*;
 
 /// Stores useful information about an [Instance].
@@ -166,29 +168,45 @@ impl Instance {
     /// Splits an [Instance] into two new instances, the first
     /// containing jobs that are live in at least one moment of those
     /// in `pts`.
-    pub fn split_by_liveness(self, pts: &BTreeSet<ByteSteps>) -> (Self, Self) {
-        let (live, non_live) = match Arc::try_unwrap(self.jobs) {
-            Ok(v) => {
-                // If the `Arc` can be unwrapped, we save one
-                // round of atomic ref count updates.
-                v.into_iter()
-                    .partition(|j| {
-                        pts.iter()
-                            .any(|t| { j.is_live_at(*t) })
-                    })
-            },
-            Err(v)    => {
-                v.iter()
-                .cloned()
-                .partition(|j| {
-                    pts.iter()
-                        .any(|t| { j.is_live_at(*t) })
-                })
-            }
-        };
+    pub fn split_by_liveness(self, pts: &BTreeSet<ByteSteps>) -> (Self, HashMap<ByteSteps, Instance>) {
+        // Too tired to document appropriately now.
+        // Important thing is that Jobs preserve their order.
+        let mut x_is_base: HashMap<ByteSteps, Vec<Arc<Job>>> = HashMap::new();
+        let mut live = vec![];
 
-        // TODO: assert that the two collections preserve sorting!
-        (Self::new(live), Self::new(non_live))
+        let mut pts_iter = pts.iter()
+            .map(|x| *x)
+            .enumerate()
+            .peekable();
+        
+        let (mut q, mut t) = pts_iter.next().unwrap();
+        for j in self.jobs
+            .iter() {
+                match pts_iter.peek() {
+                    Some((_next_q, next_t))  => {
+                        if j.is_live_at(t) {
+                            live.push(j.clone());
+                        } else if j.lives_within(&(t, *next_t)) {
+                            x_is_base.entry(q)
+                                .and_modify(|v| v.push(j.clone()))
+                                .or_insert(vec![j.clone()]);
+                        } else if j.is_live_at(*next_t) {
+                            live.push(j.clone());
+                            if j.birth >= *next_t {
+                                (q, t) = pts_iter.next().unwrap();
+                            }
+                        }
+                    },
+                    None    => { panic!("Unreachable!"); }
+                }
+        }
+
+        (
+            Self::new(live),
+            x_is_base.into_iter()
+                .map(|(k, v)| { (k, Self::new(v)) })
+                .collect()
+        )
     }
 
     /// Counts how many of the *ORIGINAL* buffers have

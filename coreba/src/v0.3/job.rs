@@ -6,6 +6,11 @@ impl Job {
         self.birth < t && self.death > t
     }
 
+    /// Returns `true` if job's lifetime is a subset of `space`.
+    pub fn lives_within(&self, space: &(ByteSteps, ByteSteps)) -> bool {
+        self.birth >= space.0 && self.death <= space.1
+    }
+
     /// Returns `true` if the job is original, i.e., was
     /// part of the user input and not created in the context
     /// of boxing.

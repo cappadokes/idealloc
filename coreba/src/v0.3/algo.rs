@@ -166,6 +166,7 @@ impl T2Control {
     }
 }
 
+/// Buchsbaum's Theorem 2.
 fn t_2(
     mut input:  Instance,
     h:          ByteSteps,
@@ -175,10 +176,11 @@ fn t_2(
     let mut res = Instance::new(vec![]);
     let mut all_unresolved = Instance::new(vec![]);
 
+    // This is a recursive function.
     let ctrl = if let Some(v) = ctrl { v }
     else { T2Control::new(&input) };
 
-    let (r_coarse, x_coarse) = input.split_by_liveness(&ctrl.critical_points);
+    let (r_coarse, x_is) = input.split_by_liveness(&ctrl.critical_points);
 
     unimplemented!()
 }
