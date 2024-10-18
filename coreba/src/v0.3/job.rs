@@ -22,6 +22,18 @@ impl Job {
         }
     }
 
+    /// Returns `true` if the job's entire lifetime ends
+    /// before `t`.
+    pub fn dies_before(&self, t: ByteSteps) -> bool {
+        self.death <= t
+    }
+
+    /// Returns `true` if the job's entire lifetime starts 
+    /// after `t`.
+    pub fn born_after(&self, t: ByteSteps) -> bool {
+        self.birth >= t
+    }
+
     /// Updates the job's "final" offset to the one that
     /// has been currently computed for it.
     ///

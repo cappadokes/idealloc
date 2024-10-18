@@ -1,5 +1,7 @@
 use core::panic;
 
+use rayon::vec;
+
 use crate::utils::*;
 
 /// Stores useful information about an [Instance].
@@ -43,8 +45,6 @@ impl Instance {
     }
 
     /// Applies Buchsbaum et al.'s Corollary 17.
-    /// As far as floating point values go, we adopt
-    /// 32bit-wide ones all across the project.
     /// 
     /// If C17 proves invalid for the current instance,
     /// configures ε so as to ensure convergence of the main loop.
@@ -192,7 +192,7 @@ impl Instance {
             .peekable();
         let mut jobs_iter = self.jobs.iter().peekable();
 
-        loop {
+        'points: loop {
             // Assumption: no remaining, i.e., non-dealt-with Job
             // is born before t_q.
             let (q, t_q) = pts_iter.next().unwrap();
@@ -210,21 +210,23 @@ impl Instance {
                     } else {
                         // We will deal with as many jobs as we can without breaking
                         // our assumption. Then we'll move on to the next t_q.
-                        if let Some(j) = jobs_iter.peek() {
-                            if j.lives_within(&(t_q, *t_q_next)) {
-                                let j = jobs_iter.next().unwrap();
-                                x_is_base.entry(q)
-                                    .and_modify(|v| v.push(j.clone()))
-                                    .or_insert(vec![j.clone()]);
-                                dealt_with += 1;
-                            } else if j.is_live_at(*t_q_next) {
-                                let j = jobs_iter.next().unwrap();
-                                live.push(j.clone());
-                                dealt_with += 1;
-                            } else {
-                                continue;
-                            }
-                        } else { break; }
+                        loop {
+                            if let Some(j) = jobs_iter.peek() {
+                                if j.lives_within(&(t_q, *t_q_next)) {
+                                    let j = jobs_iter.next().unwrap();
+                                    x_is_base.entry(q)
+                                        .and_modify(|v| v.push(j.clone()))
+                                        .or_insert(vec![j.clone()]);
+                                    dealt_with += 1;
+                                } else if j.is_live_at(*t_q_next) {
+                                    let j = jobs_iter.next().unwrap();
+                                    live.push(j.clone());
+                                    dealt_with += 1;
+                                } else {
+                                    continue 'points;
+                                }
+                            } else { break 'points; }
+                        }
                     }
                 },
                 None    => { break; }
@@ -238,6 +240,51 @@ impl Instance {
                 .map(|(k, v)| { (k, Self::new(v)) })
                 .collect()
         )
+    }
+
+    // Forms Theorem 2's R_i groups. 
+    pub fn split_ris(self, pts: &[ByteSteps]) -> Vec<Instance> {
+        assert!(!self.jobs.is_empty());
+        let mut res = vec![];
+        // The algorithm recursively splits around (q/2).ceil(), where
+        // q = pts.len() - 2. The minimum value for the ceiling function
+        // is 1. Thus the length of the points must be at least 3.
+        if pts.len() >= 3 {
+            let q = pts.len() - 2;
+            let idx_mid = (q as f32 / 2.0).ceil() as ByteSteps;
+            let t_mid = pts[idx_mid];
+            match Arc::into_inner(self.jobs) {
+                Some(v) => {
+                    let mut live_at: Vec<Arc<Job>> = vec![];
+                    let mut die_before: Vec<Arc<Job>> = vec![];
+                    let mut born_after: Vec<Arc<Job>> = vec![];
+                    for j in v {
+                        if j.is_live_at(t_mid) { live_at.push(j); }
+                        else if j.dies_before(t_mid) { die_before.push(j); }
+                        else if j.born_after(t_mid) { born_after.push(j); }
+                        else { panic!("Unreachable!"); }
+                    }
+                    res.push(Self::new(live_at));
+                    if !die_before.is_empty() {
+                        res.append(
+                            &mut Self::new(die_before)
+                                .split_ris(&pts[..idx_mid])
+                        );
+                    };
+                    if !born_after.is_empty() {
+                        res.append(
+                            &mut Self::new(born_after)
+                                .split_ris(&pts[idx_mid + 1..])
+                        );
+                    }
+                },
+                None    => { panic!("Expected singly-owned jobs vec."); }
+            };
+        } else {
+            panic!("Unreachable");
+        }
+
+        res
     }
 
     /// Counts how many of the *ORIGINAL* buffers have
@@ -288,45 +335,5 @@ impl Instance {
         let (this_min, this_max) = self.min_max_height();
         let (that_min, that_max) = other.min_max_height();
         self.info.min_max_height = Some((this_min.min(that_min), this_max.max(that_max)));
-    }
-
-    /// Restores current sizes to the original ones.
-    pub fn restore_heights(&self) {
-        /*
-        if self.jobs.iter().any(|j| {
-            // No reason to overwrite everything if
-            // it's already good.
-            j.size.get() != j.home.get().alloc_size
-        }) {
-            self.jobs.iter().for_each(|j| {
-                j.size.set(j.home.get().alloc_size);
-            });
-        }
-        */
-        unimplemented!()
-    }
-
-    /// Changes current sizes to `h`.
-    pub fn change_current_heights(&self, h: ByteSteps) {
-        /*(
-        self.jobs.iter().for_each(|j| {
-            j.size.set(h);
-        });
-        */
-        unimplemented!()
-    }
-
-    /// Changes INITIAL sizes to `h`, and sets current
-    /// size accordingly.
-    pub fn change_init_heights(&self, h: ByteSteps) {
-        /*
-        self.jobs.iter().for_each(|j| {
-            let mut new_home = j.home.get();
-            new_home.alloc_size = h;
-            j.home.replace(new_home);
-            j.size.set(h);
-        });
-        */
-        unimplemented!()
     }
 }

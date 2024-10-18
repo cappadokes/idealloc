@@ -22,15 +22,15 @@ fn read_from_path(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> {
 // To be replaced in the future with one big test.
 #[test]
 #[should_panic(expected = "not implemented")]
-fn run_minimalloc_a() {
-    let set = read_from_path("tests/data/A.1048576.csv").unwrap();
+fn run_pangu() {
+    let set = read_from_path("tests/data/pangu_2.6B.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
 
 #[test]
 #[should_panic(expected = "not implemented")]
-fn run_pangu() {
-    let set = read_from_path("tests/data/pangu_2.6B.csv").unwrap();
+fn run_minimalloc_a() {
+    let set = read_from_path("tests/data/A.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
 

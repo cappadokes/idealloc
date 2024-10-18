@@ -20,8 +20,6 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
     while iters_done < max_iters && best_opt > input.load() {
         let boxed = t_16(input.clone(), epsilon.val);
         debug_assert!(boxed.total_originals_boxed() == jobs_num_to_box, "Invalid boxing!");
-        // TODO: Time unboxing/tightening withing placement func
-        // if you're still interested!
         let placed = boxed.place();
         let current_opt = placed.opt();
         if current_opt < best_opt {
@@ -131,14 +129,12 @@ struct T2Control {
 impl T2Control {
     fn new(jobs: &Instance) -> Self {
         let (start, end) = jobs.get_horizon();
-        let mut critical_points = BTreeSet::new();
-        critical_points.insert(start);
-        assert!(critical_points.insert(end), "Same-ends horizon met.");
-        critical_points.insert(Self::gen_crit(jobs, start, end));
+        assert!(start < end, "Same-ends horizon met.");
+        let mid = Self::gen_crit(jobs, start, end);
 
         Self {
             bounding_interval:  (start, end),
-            critical_points
+            critical_points:    BTreeSet::from([start, end, mid]),
         }
     }
 
@@ -172,7 +168,7 @@ impl T2Control {
         };
 
         // Rust ranges (x..y) are low-inclusive, upper-exclusive.
-        pts.remove(thread_rng().gen_range(0..pts.len()))
+        pts[thread_rng().gen_range(0..pts.len())]
     }
 }
 
@@ -186,11 +182,19 @@ fn t_2(
     let mut res = Instance::new(vec![]);
     let mut all_unresolved = Instance::new(vec![]);
 
-    // This is a recursive function.
+    // This is a recursive function. It always has `ctrl` filled
+    // with something when it calls itself.
     let ctrl = if let Some(v) = ctrl { v }
     else { T2Control::new(&input) };
 
     let (r_coarse, x_is) = input.split_by_liveness(&ctrl.critical_points);
+    debug_assert!(!r_coarse.jobs.is_empty());
+    let r_is: Vec<Instance> = r_coarse.split_ris(
+        &ctrl.critical_points
+            .iter()
+            .copied()
+            .collect::<Vec<ByteSteps>>()[..]
+    );
 
     unimplemented!()
 }
