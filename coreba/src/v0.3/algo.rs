@@ -145,24 +145,34 @@ impl T2Control {
     /// Generates a random number within (left, right) at which
     /// at least one piece in `jobs` is live.
     fn gen_crit(
-        jobs: &Instance, 
-        left: ByteSteps, 
-        right: ByteSteps
+        jobs:   &Instance, 
+        left:   ByteSteps, 
+        right:  ByteSteps
     ) -> ByteSteps {
         // What follows is the simplest, most naive, but also
         // most safe implementation of `gen_crit`.
         use rand::{Rng, thread_rng};
 
-        // Rust ranges (x..y) are low-inclusive, upper-exclusive.
         assert!(left + 1 < right, "Bad range found.");
-        loop {
-            let t = thread_rng().gen_range(left + 1 .. right);
-            if jobs.jobs
-                .iter()
-                .any(|j| j.is_live_at(t) ) {
-                    break t;
+        let mut pts: Vec<ByteSteps> = vec![];
+        for evt in get_events(&jobs.jobs) {
+            let cand = match evt.evt_t {
+                // All jobs have lifetimes at least 2,
+                // so this is safe.
+                //
+                // At least one job must be live in each
+                // candidate point, so we add/subtract 1
+                // in case of birth/death.
+                EventKind::Birth    => { evt.time + 1 },
+                EventKind::Death    => { evt.time - 1 }
+            };
+            if cand > left && cand < right {
+                pts.push(cand);
             }
-        }
+        };
+
+        // Rust ranges (x..y) are low-inclusive, upper-exclusive.
+        pts.remove(thread_rng().gen_range(0..pts.len()))
     }
 }
 

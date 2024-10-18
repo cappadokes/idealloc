@@ -178,41 +178,59 @@ impl Instance {
         (Self::new(small), Self::new(high))
     }
 
-    /// Splits an [Instance] into two new instances, the first
+    /// Splits an [Instance] into multiple new instances, the first
     /// containing jobs that are live in at least one moment of those
     /// in `pts`.
     pub fn split_by_liveness(self, pts: &BTreeSet<ByteSteps>) -> (Self, HashMap<ByteSteps, Instance>) {
-        // Too tired to document appropriately now.
-        // Important thing is that Jobs preserve their order.
         let mut x_is_base: HashMap<ByteSteps, Vec<Arc<Job>>> = HashMap::new();
         let mut live = vec![];
+        let mut dealt_with = 0;
 
         let mut pts_iter = pts.iter()
             .map(|x| *x)
             .enumerate()
             .peekable();
-        
-        let (mut q, mut t) = pts_iter.next().unwrap();
-        for j in self.jobs
-            .iter() {
-                match pts_iter.peek() {
-                    Some((_next_q, next_t))  => {
-                        if j.is_live_at(t) {
-                            live.push(j.clone());
-                        } else if j.lives_within(&(t, *next_t)) {
+        let mut jobs_iter = self.jobs.iter().peekable();
+
+        loop {
+            // Assumption: no remaining, i.e., non-dealt-with Job
+            // is born before t_q.
+            let (q, t_q) = pts_iter.next().unwrap();
+            match pts_iter.peek() {
+                Some((q_next, t_q_next))    => {
+                    if *q_next == pts.len() - 1 {
+                        // We are at the last segment. Everything is a X_i.
+                        while let Some(j) = jobs_iter.next() {
                             x_is_base.entry(q)
                                 .and_modify(|v| v.push(j.clone()))
                                 .or_insert(vec![j.clone()]);
-                        } else if j.is_live_at(*next_t) {
-                            live.push(j.clone());
-                            if j.birth >= *next_t {
-                                (q, t) = pts_iter.next().unwrap();
-                            }
+                            dealt_with += 1;
                         }
-                    },
-                    None    => { panic!("Unreachable!"); }
-                }
-        }
+                        break;
+                    } else {
+                        // We will deal with as many jobs as we can without breaking
+                        // our assumption. Then we'll move on to the next t_q.
+                        if let Some(j) = jobs_iter.peek() {
+                            if j.lives_within(&(t_q, *t_q_next)) {
+                                let j = jobs_iter.next().unwrap();
+                                x_is_base.entry(q)
+                                    .and_modify(|v| v.push(j.clone()))
+                                    .or_insert(vec![j.clone()]);
+                                dealt_with += 1;
+                            } else if j.is_live_at(*t_q_next) {
+                                let j = jobs_iter.next().unwrap();
+                                live.push(j.clone());
+                                dealt_with += 1;
+                            } else {
+                                continue;
+                            }
+                        } else { break; }
+                    }
+                },
+                None    => { break; }
+            }
+        };
+        assert!(dealt_with == self.jobs.len(), "Bad liveness splitting!");
 
         (
             Self::new(live),
