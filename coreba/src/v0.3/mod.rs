@@ -28,7 +28,7 @@ use crate::utils::*;
 /// > In `idealloc`, memory is **not live** at the extremes. If a job is born
 /// > at the same time that another job dies, they could share the
 /// > same offset.
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Debug)]
 pub struct Job {
     // The bigger the type, the wider a variety of workloads is allowable.
     // This is the *ALLOCATED* size of the job! As it moves along the boxing
@@ -53,6 +53,7 @@ pub struct Job {
     contents:           Option<JobSet>,
     // Used for debugging mostly.
     originals_boxed:    u32,
+    id:                 u32,
 }
 
 /// The entity consumed and produced by the majority of

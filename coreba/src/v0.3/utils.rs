@@ -4,6 +4,7 @@ pub use std::{
     collections::{HashMap, BinaryHeap, BTreeSet},
     path::PathBuf,
     iter::Peekable,
+    hash::Hash,
 };
 pub use thiserror::Error;
 pub use itertools::Itertools;
@@ -78,7 +79,7 @@ pub trait JobGen<T> {
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>>;
     /// Uses some available data to spawn one [Job]. We do not put
     /// any limitations on what that data may look like.
-    fn gen_single(&self, d: T) -> Job;
+    fn gen_single(&self, d: T, id: u32) -> Job;
 }
 
 #[derive(Error, Debug)]
@@ -115,6 +116,7 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let mut res = vec![];
         let mut data_buf: [ByteSteps; 3] = [0; 3];
+        let mut next_id = 0;
 
         let path = self.path
             .as_path();
@@ -136,7 +138,8 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
                         }).enumerate() {
                             data_buf[idx] = data;
                     }
-                    res.push(self.gen_single(&data_buf));
+                    res.push(self.gen_single(&data_buf, next_id));
+                    next_id += 1;
                 }
             },
             Err(e)  => { return Err(Box::new(e)); }
@@ -145,7 +148,7 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
         Ok(res)
     }
 
-    fn gen_single(&self, d: &[ByteSteps; 3]) -> Job {
+    fn gen_single(&self, d: &[ByteSteps; 3], id: u32) -> Job {
         Job {
             size:               d[2],
             birth:              d[0],
@@ -154,6 +157,7 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
             alignment:          None,
             contents:           None,
             originals_boxed:    0,
+            id
         }        
     }
 }

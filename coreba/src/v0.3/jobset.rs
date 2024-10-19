@@ -148,6 +148,63 @@ pub fn get_load(jobs: &JobSet) -> ByteSteps {
     max
 }
 
+/// Self-explanatory. Each [JobSet] of the returned vector
+/// is an IGC row. Rows returned are ordered by DECREASING
+/// lifespan--the longest rows are put first.
+pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
+    let mut res: Vec<JobSet> = vec![];
+    // This is our inventory of free rows. We'll be pulling
+    // space from here (lowest first), and adding higher rows
+    // along the way whenever we run out.
+    let mut free_rows = BTreeSet::from([0]);
+    // The highest spawned row.
+    let mut max_row = 0;
+    // A mapping from job IDs to row nums.
+    let mut cheatsheet: HashMap<u32, ByteSteps> = HashMap::new();
+
+    // Traverse jobs...
+    let mut evts = get_events(&jobs);
+    while let Some(evt) = evts.pop() {
+        match evt.evt_t {
+            EventKind::Birth    => {
+                // Get the lowest free row.
+                let row_to_fill = free_rows.pop_first().unwrap();
+                // Update map.
+                cheatsheet.insert(evt.job.id, row_to_fill);
+                match res.get_mut(row_to_fill) {
+                    Some(v) => {
+                        v.push(evt.job);
+                    },
+                    None    => {
+                        assert!(row_to_fill == res.len(), "Bad IGC impl!");
+                        res.push(vec![evt.job]);
+                    }
+                };
+                if free_rows.is_empty() {
+                    // No free space! Add one more row to the top.
+                    assert!(free_rows.insert(max_row + 1), "Bad cheatsheet"); 
+                    max_row += 1;
+                }
+            },
+            EventKind::Death    => {
+                let row_to_vacate = cheatsheet.remove(&evt.job.id).unwrap();
+                assert!(free_rows.insert(row_to_vacate), "Bad bad bad");
+            }
+        }
+    };
+
+    // Put longest rows to the bottom.
+    res.sort_unstable_by(|a, b| {
+        b.iter()
+            .fold(0, |acc_life, j| { acc_life + j.lifetime()} )
+            .cmp(&a.iter()
+                    .fold(0, |acc_life, j| { acc_life + j.lifetime()})
+            )
+    });
+
+    res
+}
+
 #[derive(PartialEq, Eq)]
 /// An [Event] is either a birth or a death.
 pub enum EventKind {

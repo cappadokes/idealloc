@@ -4,15 +4,23 @@ impl Job {
     /// Creates a by-guarantee valid box containing
     /// the jobs in `contents`.
     /// 
-    /// The new job's contents are sorted by increasing birth.
+    /// The new job's contents are sorted by the "big rocks first"
+    /// heuristic--that is, by area (lifetime * size).
     pub fn new_box(
         mut contents:   JobSet,
         height:         ByteSteps,
-        is_sorted:      bool,
     ) -> Self {
+        use std::{sync::atomic::AtomicU32, u32};
+        static NEXT_ID: AtomicU32 = AtomicU32::new(u32::MAX);
+
+        contents.sort_unstable_by(|a, b| {
+            (b.lifetime() * b.size).cmp(
+                &(a.lifetime() * a.size)
+            )
+        });
+
         // The box must be high enough to enclose all jobs.
         assert!(get_load(&contents) <= height, "Bad boxing requested");
-        if !is_sorted { contents.sort(); }
         let mut birth = ByteSteps::MAX;
         let mut death = 0;
         let mut originals_boxed = 0;
@@ -35,6 +43,7 @@ impl Job {
             alignment:          None,
             contents:           Some(contents),
             originals_boxed,
+            id:                 NEXT_ID.fetch_sub(1, std::sync::atomic::Ordering::SeqCst),
         }
     }
 
@@ -120,6 +129,20 @@ impl Ord for Job {
 impl PartialOrd for Job {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Job {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Job {}
+
+impl Hash for Job {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 //-----TREATING GROUPS OF JOBS (END)---------------------

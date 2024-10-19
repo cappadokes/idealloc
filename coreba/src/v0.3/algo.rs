@@ -147,7 +147,8 @@ impl T2Control {
 
         assert!(left + 1 < right, "Bad range found.");
         let mut pts: Vec<ByteSteps> = vec![];
-        for evt in get_events(&jobs.jobs) {
+        let mut evts = get_events(&jobs.jobs);
+        while let Some(evt) = evts.pop() {
             let cand = match evt.evt_t {
                 // All jobs have lifetimes at least 2,
                 // so this is safe.
@@ -210,7 +211,8 @@ fn t_2(
 
     // We want to apply IGC to `all_unresolved`. We're going to
     // use traversal, so the jobs must be sorted.
-    all_unresolved.sort();
+    all_unresolved.sort_unstable();
+    let igc_rows = interval_graph_coloring(all_unresolved);
 
     unimplemented!()
 }
@@ -310,8 +312,7 @@ fn strip_box_core(
             res.push(Arc::new(
                 Job::new_box(
                     strip_cuttin(&mut iter, true, group_size),
-                     box_size,
-                     !vertical)
+                     box_size)
                     )
                 );
         }        
