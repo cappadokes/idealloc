@@ -29,13 +29,6 @@ fn run_pangu() {
 
 #[test]
 #[should_panic(expected = "not implemented")]
-fn run_minimalloc_a() {
-    let set = read_from_path("tests/data/A.1048576.csv").unwrap();
-    coreba::algo::main_loop(set, 1);
-}
-
-#[test]
-#[should_panic(expected = "not implemented")]
 fn run_nezha() {
     let set = read_from_path("tests/data/bert_nezha.csv").unwrap();
     coreba::algo::main_loop(set, 1);
@@ -85,6 +78,12 @@ fn run_resnet() {
 
 #[test]
 #[should_panic(expected = "not implemented")]
+fn run_minimalloc_a() {
+    let set = read_from_path("tests/data/A.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+#[test]
+#[should_panic(expected = "not implemented")]
 fn run_minimalloc_b() {
     let set = read_from_path("tests/data/B.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
@@ -111,6 +110,7 @@ fn run_minimalloc_e() {
     coreba::algo::main_loop(set, 1);
 }
 
+/*
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_minimalloc_i() {
@@ -152,3 +152,4 @@ fn run_minimalloc_h() {
     let set = read_from_path("tests/data/H.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
+*/

@@ -75,6 +75,51 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
         .collect())
 }
 
+/// Forms Theorem 2's R_i groups. 
+pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
+    let mut res = vec![];
+    // The algorithm recursively splits around (q/2).ceil(), where
+    // q = pts.len() - 2. The minimum value for the ceiling function
+    // is 1. Thus the length of the points must be at least 3.
+    if pts.len() >= 3 {
+        let q = pts.len() - 2;
+        let idx_mid = (q as f32 / 2.0).ceil() as ByteSteps;
+        // The fact that we need to index within `pts` is why we're
+        // passing a slice instead of the original `BTreeSet`.
+        let t_mid = pts[idx_mid];
+        let mut live_at: Vec<Arc<Job>> = vec![];
+        let mut die_before: Vec<Arc<Job>> = vec![];
+        let mut born_after: Vec<Arc<Job>> = vec![];
+        for j in jobs {
+            if j.is_live_at(t_mid) { live_at.push(j); }
+            else if j.dies_before(t_mid) { die_before.push(j); }
+            else if j.born_after(t_mid) { born_after.push(j); }
+            else { panic!("Unreachable!"); }
+        }
+        res.push(live_at);
+        if !die_before.is_empty() {
+            res.append(
+                &mut split_ris(
+                    die_before,
+                    &pts[..idx_mid]
+                )
+            );
+        };
+        if !born_after.is_empty() {
+            res.append(
+                &mut split_ris(
+                    born_after,
+                    &pts[idx_mid + 1..]
+                )
+            );
+        }
+    } else {
+        panic!("Unreachable");
+    }
+
+    res
+}
+
 #[derive(PartialEq, Eq)]
 /// An [Event] is either a birth or a death.
 pub enum EventKind {

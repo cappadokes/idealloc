@@ -1,7 +1,3 @@
-use core::panic;
-
-use rayon::vec;
-
 use crate::utils::*;
 
 /// Stores useful information about an [Instance].
@@ -9,8 +5,22 @@ use crate::utils::*;
 pub struct Info {
     // **CAUTION:** we mean the MAXIMUM load!
     load:           Option<ByteSteps>,
-    // **CAUTION:** we mean the CURRENT height!
     min_max_height: Option<(ByteSteps, ByteSteps)>,
+}
+
+impl Info {
+    fn merge(this: &mut Instance, that: &mut Instance) -> Self {
+        let mut res = Self {
+            load:           None,
+            min_max_height: None,
+        };
+
+        let (this_min, this_max) = this.min_max_height();
+        let (that_min, that_max) = that.min_max_height();
+        res.min_max_height = Some((this_min.min(that_min), this_max.max(that_max)));
+
+        res
+    }
 }
 
 impl Instance {
@@ -44,39 +54,27 @@ impl Instance {
         )
     }
 
-    /// Applies Buchsbaum et al.'s Corollary 17.
-    /// 
-    /// If C17 proves invalid for the current instance,
-    /// configures ε so as to ensure convergence of the main loop.
+    /// Replaces Buchsbaum et al's Corollary 17 for
+    /// initializing ε. Makes sure that the rest of 
+    /// the algorithm will converge.
     pub fn init_e(&mut self) -> f64 {
         let (h_min, h_max) = self.min_max_height();
-        let res = (h_min as f64 / self.load() as f64).powf(1.0 / 7.0);
         let r = h_max as f64 / h_min as f64;
         let lgr = r.log2();
+        let lg2r = lgr.powi(2);
+        // There are two conditions that must be met in order for boxing
+        // to converge: (i) μ < 1 and (ii) (μH).floor > h_min
+        //
+        // If one solved both inequalities for ε, one would get
+        // (lgr)^14 / r <= e^6 < (lgr)^12
+        // In order for ε to have some legit values, the two ends
+        // must honor the inequality.
+        assert!(lg2r / r < 1.0, "No solution exists");
 
-        if lgr.powi(2) < 1.0 / res {
-            res
-        } else {
-            let mu = res / lgr.powi(2);
-            let h_cap = (mu.powi(5) * h_max as f64 / lgr.powi(2)).ceil();
-            let target_size = (mu * h_cap).floor();
-            // This is the condition which ensures convergence (for now...).
-            if target_size > h_min as f64 && mu < 1.0 {
-                res
-            } else {
-                // Watch out for overflow.
-                if h_min > 3 {
-                    assert!(((lgr.powi(2) * (h_min - 3) as f64) / h_max as f64) < 1.0, "No solution exists");
-                }
-                let small_end = 0.0_f64.max(lgr.powi(14) * (h_min as f64 - 3.0) / h_max as f64);
-                let big_end = lgr.powi(12);
+        let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
+        let big_end = (lg2r.powi(6)).powf(1.0 / 6.0);
 
-                // Beginning from the aforementioned condition and
-                // solving for ε ends up in the inequality
-                // small_end < ε^6 < big_end. 
-                ((big_end - small_end) / 2.0 + small_end).powf(1.0 / 6.0)
-            }
-        }
+        (big_end - small_end) / 2.0 + small_end
     }
 
     /// Calculates the makespan.
@@ -181,7 +179,7 @@ impl Instance {
     /// Splits an [Instance] into multiple new instances, the first
     /// containing jobs that are live in at least one moment of those
     /// in `pts`.
-    pub fn split_by_liveness(self, pts: &BTreeSet<ByteSteps>) -> (Self, HashMap<ByteSteps, Instance>) {
+    pub fn split_by_liveness(self, pts: &BTreeSet<ByteSteps>) -> (JobSet, HashMap<ByteSteps, Instance>) {
         let mut x_is_base: HashMap<ByteSteps, Vec<Arc<Job>>> = HashMap::new();
         let mut live = vec![];
         let mut dealt_with = 0;
@@ -235,56 +233,11 @@ impl Instance {
         assert!(dealt_with == self.jobs.len(), "Bad liveness splitting!");
 
         (
-            Self::new(live),
+            live,
             x_is_base.into_iter()
                 .map(|(k, v)| { (k, Self::new(v)) })
                 .collect()
         )
-    }
-
-    // Forms Theorem 2's R_i groups. 
-    pub fn split_ris(self, pts: &[ByteSteps]) -> Vec<Instance> {
-        assert!(!self.jobs.is_empty());
-        let mut res = vec![];
-        // The algorithm recursively splits around (q/2).ceil(), where
-        // q = pts.len() - 2. The minimum value for the ceiling function
-        // is 1. Thus the length of the points must be at least 3.
-        if pts.len() >= 3 {
-            let q = pts.len() - 2;
-            let idx_mid = (q as f32 / 2.0).ceil() as ByteSteps;
-            let t_mid = pts[idx_mid];
-            match Arc::into_inner(self.jobs) {
-                Some(v) => {
-                    let mut live_at: Vec<Arc<Job>> = vec![];
-                    let mut die_before: Vec<Arc<Job>> = vec![];
-                    let mut born_after: Vec<Arc<Job>> = vec![];
-                    for j in v {
-                        if j.is_live_at(t_mid) { live_at.push(j); }
-                        else if j.dies_before(t_mid) { die_before.push(j); }
-                        else if j.born_after(t_mid) { born_after.push(j); }
-                        else { panic!("Unreachable!"); }
-                    }
-                    res.push(Self::new(live_at));
-                    if !die_before.is_empty() {
-                        res.append(
-                            &mut Self::new(die_before)
-                                .split_ris(&pts[..idx_mid])
-                        );
-                    };
-                    if !born_after.is_empty() {
-                        res.append(
-                            &mut Self::new(born_after)
-                                .split_ris(&pts[idx_mid + 1..])
-                        );
-                    }
-                },
-                None    => { panic!("Expected singly-owned jobs vec."); }
-            };
-        } else {
-            panic!("Unreachable");
-        }
-
-        res
     }
 
     /// Counts how many of the *ORIGINAL* buffers have
@@ -313,10 +266,7 @@ impl Instance {
             }
         };
         self.jobs = Arc::new(all);
-        self.info.load = None;
-        let (this_min, this_max) = self.min_max_height();
-        let (that_min, that_max) = other.min_max_height();
-        self.info.min_max_height = Some((this_min.min(that_min), this_max.max(that_max)));
+        self.info = Info::merge(&mut self, &mut other);
 
         self
     }
@@ -331,9 +281,6 @@ impl Instance {
             .sorted_unstable()
             .collect();
         self.jobs = Arc::new(all);
-        self.info.load = None;
-        let (this_min, this_max) = self.min_max_height();
-        let (that_min, that_max) = other.min_max_height();
-        self.info.min_max_height = Some((this_min.min(that_min), this_max.max(that_max)));
+        self.info = Info::merge(self, &mut other);
     }
 }

@@ -45,12 +45,12 @@ fn t_16(mut input: Instance, epsilon: f64) -> Instance {
             let h_max = input.min_max_height().1 as f64;
             c_15(
                 input,
-                (h_max / epsilon).ceil() as ByteSteps,
+                (h_max / epsilon).ceil(),
                 epsilon,
             )
         },
         (false, mu, h)  => {
-            let target_size = (mu * (h as f64)).floor() as usize;
+            let target_size = (mu * h).floor() as usize;
             assert!(target_size > input.min_max_height().0, "ε-convergence can't be avoided after all.");
             let (x_s, x_l) = input.split_by_height(target_size);
             let small_boxed = c_15(x_s, h, mu);
@@ -61,7 +61,7 @@ fn t_16(mut input: Instance, epsilon: f64) -> Instance {
 }
 
 /// Checks if Theorem 16 has converged.
-fn t_16_cond(input: &mut Instance, epsilon: f64) -> (bool, f64, ByteSteps) {
+fn t_16_cond(input: &mut Instance, epsilon: f64) -> (bool, f64, f64) {
     let (h_min, h_max) = input.min_max_height();
     let r = h_max as f64 / h_min as f64;
 
@@ -71,13 +71,13 @@ fn t_16_cond(input: &mut Instance, epsilon: f64) -> (bool, f64, ByteSteps) {
     (
         lg2r < 1.0 / epsilon,
         mu,
-        (mu.powi(5) * (h_max as f64) / lg2r).ceil() as ByteSteps,
+        (mu.powi(5) * (h_max as f64) / lg2r).ceil(),
     )
 }
 
 fn c_15(
     input:      Instance,
-    h:          ByteSteps,
+    h:          f64,
     epsilon:    f64,
 ) -> Instance {
     // Core assumption of Corollary 15: heights of all jobs
@@ -95,10 +95,8 @@ fn c_15(
     input.make_buckets(epsilon)
         .into_par_iter()
         .for_each(|(h_i, unit_jobs)| {
-            let h_param = (h as f32 / h_i as f32).floor() as ByteSteps;
-            // The below assertion was mostly used out of fear. To be
-            // reconsidered if the rest of the pipeline proves broken.
-            //assert!(h_param > 1, "T2 fed with unit H!");
+            let h_param = (h / h_i as f64).floor() as ByteSteps;
+            assert!(h_param > 0, "T2 fed with zero H!");
             let boxed = t_2(unit_jobs, h_param, epsilon, None);
             // TODO: how many hierarchy levels are present after T2?
             // betalloc assumes just one, because (as below) it changes
@@ -180,23 +178,121 @@ fn t_2(
     ctrl:       Option<T2Control>,
 ) -> Instance {
     let mut res = Instance::new(vec![]);
-    let mut all_unresolved = Instance::new(vec![]);
+    let mut all_unresolved: JobSet = vec![];
 
     // This is a recursive function. It always has `ctrl` filled
     // with something when it calls itself.
     let ctrl = if let Some(v) = ctrl { v }
     else { T2Control::new(&input) };
 
+    // We split, in as efficient a way as possible, the input's jobs
+    // into groups formed by their liveness in the critical points.
     let (r_coarse, x_is) = input.split_by_liveness(&ctrl.critical_points);
-    debug_assert!(!r_coarse.jobs.is_empty());
-    let r_is: Vec<Instance> = r_coarse.split_ris(
+    assert!(!r_coarse.is_empty(), "Theorem 2 entered infinite loop");
+    // X_is are going to be passed in future iterations and it makes sense
+    // to make Instances out of them. R_is, however, will be immediately
+    // boxed. So we remain at the JobSet abstraction.
+    let r_is: Vec<JobSet> = split_ris(
+            r_coarse,
         &ctrl.critical_points
             .iter()
             .copied()
             .collect::<Vec<ByteSteps>>()[..]
     );
 
+    for r_i in r_is {
+        let (boxed, mut unresolved) = lemma_1(r_i, h, epsilon);
+        all_unresolved.append(&mut unresolved);
+        if let Some(boxed) = boxed {
+            res = res.merge_with(boxed);
+        }
+    }
+
+    // We want to apply IGC to `all_unresolved`. We're going to
+    // use traversal, so the jobs must be sorted.
+    all_unresolved.sort();
+
     unimplemented!()
+}
+
+/// Implements Buchsbaum et al's Lemma 1.
+fn lemma_1(input: JobSet, h: ByteSteps, e: f64) -> (Option<Instance>, JobSet) {
+    // First we cut two strips, each having `outer_num` jobs
+    // (if enough jobs exist)
+    let outer_num = h * (1.0 / e.powi(2)).ceil() as ByteSteps;
+    let mut total_jobs = input.len();
+    if total_jobs > outer_num {
+        let mut iter = input.into_iter();
+        let mut outer = strip_cuttin(&mut iter, true, outer_num);
+        // We know for a fact that there are more jobs to carve.
+        let mut outer_2 = strip_cuttin(&mut iter, false, outer_num);
+
+        if  total_jobs > 2 * outer_num {
+            // The inner strips will contain that many
+            // jobs in total.
+            total_jobs -= 2 * outer_num;
+            // Counter of inner-stripped jobs.
+            let mut inner_jobs = 0;
+            let mut inner_vert: Vec<JobSet> = vec![];
+            let mut inner_hor: Vec<JobSet> = vec![];
+            // Max size of each inner strip.
+            let inner_num = h * (1.0 / e).ceil() as ByteSteps;
+            while inner_jobs < total_jobs {
+                iter = iter.sorted_unstable();
+                let inner = strip_cuttin(&mut iter, true, inner_num);
+                inner_jobs += inner.len();
+                inner_vert.push(inner);
+                if inner_jobs == total_jobs { break; }
+                let inner_2 = strip_cuttin(&mut iter, false, inner_num);
+                inner_jobs += inner_2.len();
+                inner_hor.push(inner_2);
+            }
+
+            (Some(strip_boxin(inner_vert, inner_hor, h)), outer)
+        } else {
+            outer.append(&mut outer_2);
+            (None, outer)
+        }
+    } else {
+        (None, input)
+    }
+}
+
+fn strip_boxin(
+    verticals:      Vec<JobSet>,
+    horizontals:    Vec<JobSet>,
+    box_size:       ByteSteps
+) -> Instance {
+    unimplemented!()
+}
+
+fn strip_cuttin(
+    iter:       &mut std::vec::IntoIter<Arc<Job>>,
+    is_sorted:  bool,
+    to_take:    ByteSteps,
+) -> JobSet {
+    if !is_sorted {
+        // Sort remaining jobs by decreasing
+        // death.
+        *iter = iter.sorted_unstable_by(|a, b| {
+            b.death.cmp(&a.death)
+        });
+    }
+    let mut stripped = 0;
+    // This vector collects the outer vertical/horizontal strip jobs.
+    let mut res = vec![];
+
+    // This condition helps us check if we've run
+    // out of jobs.
+    while let Some(j) = iter.next() {
+        stripped += 1;
+        res.push(j);
+        // This condition helps check if we're
+        // done with the outer vert. strip.
+        if stripped == to_take { break; }
+    };
+    
+    res
 }
 
 // The following operations are considered
@@ -215,15 +311,15 @@ impl Instance {
     /// by the height to be given to Theorem 2.
     fn make_buckets(self, epsilon: f64) -> HashMap<ByteSteps, Instance> {
         let mut res = HashMap::new();
-        let mut prev_floor = 1.0;
-        let mut i = 1;
+        let mut prev_floor = 1.0 / epsilon;
+        let mut i = 0;
         let mut source = self;
         while source.jobs.len() > 0 {
             let h = (1.0 + epsilon).powi(i);
             if source.jobs.iter().any(|j| j.size as f64 > prev_floor && j.size as f64 <= h) {
-                let h = h.floor() as ByteSteps;
-                let (toward_bucket, rem) = source.split_by_height(h);
-                res.insert(h, toward_bucket);
+                let h_split = h.floor() as ByteSteps;
+                let (toward_bucket, rem) = source.split_by_height(h_split);
+                res.insert(h_split, toward_bucket);
                 source = rem;
             }
             prev_floor = h;
