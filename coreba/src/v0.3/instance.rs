@@ -62,19 +62,30 @@ impl Instance {
         let r = h_max as f64 / h_min as f64;
         let lgr = r.log2();
         let lg2r = lgr.powi(2);
-        // There are two conditions that must be met in order for boxing
-        // to converge: (i) μ < 1 and (ii) (μH).floor > h_min
-        //
-        // If one solved both inequalities for ε, one would get
-        // (lgr)^14 / r <= e^6 < (lgr)^12
-        // In order for ε to have some legit values, the two ends
-        // must honor the inequality.
-        assert!(lg2r / r < 1.0, "No solution exists");
 
-        let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
-        let big_end = (lg2r.powi(6)).powf(1.0 / 6.0);
+        // Default C17 val.
+        let test = (h_max as f64 / self.load() as f64).powf(1.0 / 7.0);
+        if lg2r < 1.0 / test {
+            test
+        } else {
+            // There are two conditions that must be met in order for boxing
+            // to converge: (i) μ < 1 and (ii) (μH).floor > h_min
+            //
+            // If one solved both inequalities for ε, one would get
+            // (lgr)^14 / r <= e^6 < (lgr)^12
+            // In order for ε to have some legit values, the two ends
+            // must honor the inequality.
+            assert!(lg2r / r < 1.0, "No solution exists");
 
-        (big_end - small_end) / 2.0 + small_end
+            let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
+            let big_end = (lg2r.powi(6)).powf(1.0 / 6.0);
+            
+            if small_end <= test && test < big_end {
+                test
+            } else {
+                (big_end - small_end) / 2.0 + small_end
+            }
+        }
     }
 
     /// Calculates the makespan.
@@ -91,32 +102,10 @@ impl Instance {
             // thus considered expensive.
             Some(v) => v,
             None => {
-                let (mut running, mut max) = (0, 0);
-                let mut evts = get_events(&self.jobs);
-                // The `evts` variable is a min-priority queue on the
-                // births and deaths of the jobs. Deaths have priority
-                // over births. By popping again and again, we have
-                // our "traversal" from left to right.
-                while let Some(evt) = evts.pop()  {
-                    match evt.evt_t {
-                        EventKind::Birth    => {
-                            running += evt.job.size;
-                            if running > max {
-                                max = running;
-                            }
-                        },
-                        EventKind::Death    => {
-                            if let Some(v) = running.checked_sub(evt.job.size) {
-                                running = v;
-                            } else {
-                                panic!("Almost overflowed load!");
-                            }
-                        }
-                    }
-                }
-                self.info.load = Some(max);
+                let v = get_load(&self.jobs);
+                self.info.load = Some(v);
 
-                max
+                v
             }
         }
     }

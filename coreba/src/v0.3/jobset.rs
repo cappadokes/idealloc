@@ -120,6 +120,34 @@ pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
     res
 }
 
+pub fn get_load(jobs: &JobSet) -> ByteSteps {
+    let (mut running, mut max) = (0, 0);
+    let mut evts = get_events(jobs);
+    // The `evts` variable is a min-priority queue on the
+    // births and deaths of the jobs. Deaths have priority
+    // over births. By popping again and again, we have
+    // our "traversal" from left to right.
+    while let Some(evt) = evts.pop()  {
+        match evt.evt_t {
+            EventKind::Birth    => {
+                running += evt.job.size;
+                if running > max {
+                    max = running;
+                }
+            },
+            EventKind::Death    => {
+                if let Some(v) = running.checked_sub(evt.job.size) {
+                    running = v;
+                } else {
+                    panic!("Almost overflowed load!");
+                }
+            }
+        }
+    }
+
+    max
+}
+
 #[derive(PartialEq, Eq)]
 /// An [Event] is either a birth or a death.
 pub enum EventKind {

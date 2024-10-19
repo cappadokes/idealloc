@@ -3,6 +3,7 @@ pub use std::{
     io::{BufRead, BufReader},
     collections::{HashMap, BinaryHeap, BTreeSet},
     path::PathBuf,
+    iter::Peekable,
 };
 pub use thiserror::Error;
 pub use itertools::Itertools;

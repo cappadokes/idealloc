@@ -1,6 +1,43 @@
 use crate::utils::*;
 
 impl Job {
+    /// Creates a by-guarantee valid box containing
+    /// the jobs in `contents`.
+    /// 
+    /// The new job's contents are sorted by increasing birth.
+    pub fn new_box(
+        mut contents:   JobSet,
+        height:         ByteSteps,
+        is_sorted:      bool,
+    ) -> Self {
+        // The box must be high enough to enclose all jobs.
+        assert!(get_load(&contents) <= height, "Bad boxing requested");
+        if !is_sorted { contents.sort(); }
+        let mut birth = ByteSteps::MAX;
+        let mut death = 0;
+        let mut originals_boxed = 0;
+        for j in &contents {
+            // The box's temporal endpoints are the minimum
+            // birth to the left, maximum death to the right.
+            if j.birth < birth { birth = j.birth; }
+            if j.death > death { death = j.death; }
+            // We also keep track of how many original jobs
+            // this box contains, somewhere in its hierarchy.
+            if j.is_original() {
+                originals_boxed += 1;
+            } else { originals_boxed += j.originals_boxed; }
+        }
+        Self {
+            size:               height,
+            birth,
+            death,
+            req_size:           height,
+            alignment:          None,
+            contents:           Some(contents),
+            originals_boxed,
+        }
+    }
+
     /// Returns `true` if the job is live at moment `t`.
     pub fn is_live_at(&self, t: usize) -> bool {
         self.birth < t && self.death > t

@@ -50,7 +50,7 @@ fn t_16(mut input: Instance, epsilon: f64) -> Instance {
             )
         },
         (false, mu, h)  => {
-            let target_size = (mu * h).floor() as usize;
+            let target_size = (mu * h).floor() as ByteSteps;
             assert!(target_size > input.min_max_height().0, "ε-convergence can't be avoided after all.");
             let (x_s, x_l) = input.split_by_height(target_size);
             let small_boxed = c_15(x_s, h, mu);
@@ -95,12 +95,10 @@ fn c_15(
     input.make_buckets(epsilon)
         .into_par_iter()
         .for_each(|(h_i, unit_jobs)| {
+            assert!(h_i as f64 <= h, "T2 fed with zero H!");
             let h_param = (h / h_i as f64).floor() as ByteSteps;
-            assert!(h_param > 0, "T2 fed with zero H!");
-            let boxed = t_2(unit_jobs, h_param, epsilon, None);
+            let boxed = t_2(unit_jobs, h_param, h as ByteSteps, epsilon, None);
             // TODO: how many hierarchy levels are present after T2?
-            // betalloc assumes just one, because (as below) it changes
-            // only the heights of the OUTER boxes. What's the truth?
             let mut guard = res.lock().unwrap();                
             guard.merge_via_ref(boxed);
     });
@@ -174,6 +172,8 @@ impl T2Control {
 fn t_2(
     mut input:  Instance,
     h:          ByteSteps,
+    // Needed because we have discarded scaling operations.
+    h_real:     ByteSteps,
     epsilon:    f64,
     ctrl:       Option<T2Control>,
 ) -> Instance {
@@ -201,7 +201,7 @@ fn t_2(
     );
 
     for r_i in r_is {
-        let (boxed, mut unresolved) = lemma_1(r_i, h, epsilon);
+        let (boxed, mut unresolved) = lemma_1(r_i, h, h_real, epsilon);
         all_unresolved.append(&mut unresolved);
         if let Some(boxed) = boxed {
             res = res.merge_with(boxed);
@@ -216,13 +216,18 @@ fn t_2(
 }
 
 /// Implements Buchsbaum et al's Lemma 1.
-fn lemma_1(input: JobSet, h: ByteSteps, e: f64) -> (Option<Instance>, JobSet) {
+fn lemma_1(
+    input:  JobSet,
+    h:      ByteSteps,
+    h_real: ByteSteps,
+    e: f64,
+) -> (Option<Instance>, JobSet) {
     // First we cut two strips, each having `outer_num` jobs
     // (if enough jobs exist)
     let outer_num = h * (1.0 / e.powi(2)).ceil() as ByteSteps;
     let mut total_jobs = input.len();
     if total_jobs > outer_num {
-        let mut iter = input.into_iter();
+        let mut iter = input.into_iter().peekable();
         let mut outer = strip_cuttin(&mut iter, true, outer_num);
         // We know for a fact that there are more jobs to carve.
         let mut outer_2 = strip_cuttin(&mut iter, false, outer_num);
@@ -238,7 +243,7 @@ fn lemma_1(input: JobSet, h: ByteSteps, e: f64) -> (Option<Instance>, JobSet) {
             // Max size of each inner strip.
             let inner_num = h * (1.0 / e).ceil() as ByteSteps;
             while inner_jobs < total_jobs {
-                iter = iter.sorted_unstable();
+                iter = iter.sorted_unstable().peekable();
                 let inner = strip_cuttin(&mut iter, true, inner_num);
                 inner_jobs += inner.len();
                 inner_vert.push(inner);
@@ -248,7 +253,7 @@ fn lemma_1(input: JobSet, h: ByteSteps, e: f64) -> (Option<Instance>, JobSet) {
                 inner_hor.push(inner_2);
             }
 
-            (Some(strip_boxin(inner_vert, inner_hor, h)), outer)
+            (Some(strip_boxin(inner_vert, inner_hor, h, h_real)), outer)
         } else {
             outer.append(&mut outer_2);
             (None, outer)
@@ -258,16 +263,67 @@ fn lemma_1(input: JobSet, h: ByteSteps, e: f64) -> (Option<Instance>, JobSet) {
     }
 }
 
+/// Helper function for Lemma 1. Splits all inner
+/// strips into boxes containing `group_size` jobs each.
+/// 
+/// The real size of each box is `box_size`.
 fn strip_boxin(
     verticals:      Vec<JobSet>,
     horizontals:    Vec<JobSet>,
-    box_size:       ByteSteps
+    group_size:     ByteSteps,
+    box_size:       ByteSteps,
 ) -> Instance {
-    unimplemented!()
+    let mut res_set = strip_box_core(verticals, group_size, box_size, true);
+    res_set.append(&mut strip_box_core(horizontals, group_size, box_size, false));
+    res_set.sort_unstable();
+    Instance::new(res_set)
 }
 
+/// Helper function for Lemma 1. Splits the jobs
+/// of a single strip into boxes containing `group_size` jobs each.
+/// 
+/// The real size of each box is `box_size`.
+fn strip_box_core(
+    strips:         Vec<JobSet>,
+    group_size:     ByteSteps,
+    box_size:       ByteSteps,
+    vertical:       bool,
+) -> JobSet {
+    let mut res: JobSet = vec![];
+    for strip in strips {
+        // We must repeatedly divide each strip in groups
+        // of size `group_size` and box them.
+        //
+        // We shall make reuse of `strip_cuttin`.
+        let mut iter = if vertical {
+            strip.into_iter()
+                // Whether the strip is a vertical or horizontal one
+                // designates the sorting before selection.
+                .sorted_unstable_by(|a, b| { b.death.cmp(&a.death) })
+                .peekable()
+        } else {
+            strip.into_iter()
+                .sorted()
+                .peekable()
+        };
+        while iter.peek().is_some() {
+            res.push(Arc::new(
+                Job::new_box(
+                    strip_cuttin(&mut iter, true, group_size),
+                     box_size,
+                     !vertical)
+                    )
+                );
+        }        
+    };
+
+    res
+}
+
+/// Helper function for Lemma 1. Selects `to_take`
+/// jobs from a given iterator.
 fn strip_cuttin(
-    iter:       &mut std::vec::IntoIter<Arc<Job>>,
+    iter:       &mut Peekable<std::vec::IntoIter<Arc<Job>>>,
     is_sorted:  bool,
     to_take:    ByteSteps,
 ) -> JobSet {
@@ -276,7 +332,7 @@ fn strip_cuttin(
         // death.
         *iter = iter.sorted_unstable_by(|a, b| {
             b.death.cmp(&a.death)
-        });
+        }).peekable();
     }
     let mut stripped = 0;
     // This vector collects the outer vertical/horizontal strip jobs.

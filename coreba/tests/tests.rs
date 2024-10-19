@@ -113,27 +113,6 @@ fn run_minimalloc_e() {
 /*
 #[test]
 #[should_panic(expected = "not implemented")]
-fn run_minimalloc_i() {
-    let set = read_from_path("tests/data/I.1048576.csv").unwrap();
-    coreba::algo::main_loop(set, 1);
-}
-
-#[test]
-#[should_panic(expected = "not implemented")]
-fn run_minimalloc_j() {
-    let set = read_from_path("tests/data/J.1048576.csv").unwrap();
-    coreba::algo::main_loop(set, 1);
-}
-
-#[test]
-#[should_panic(expected = "not implemented")]
-fn run_minimalloc_k() {
-    let set = read_from_path("tests/data/K.1048576.csv").unwrap();
-    coreba::algo::main_loop(set, 1);
-}
-
-#[test]
-#[should_panic(expected = "not implemented")]
 fn run_minimalloc_f() {
     let set = read_from_path("tests/data/F.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
@@ -150,6 +129,27 @@ fn run_minimalloc_g() {
 #[should_panic(expected = "not implemented")]
 fn run_minimalloc_h() {
     let set = read_from_path("tests/data/H.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_i() {
+    let set = read_from_path("tests/data/I.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_j() {
+    let set = read_from_path("tests/data/J.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, 1);
+}
+
+#[test]
+#[should_panic(expected = "not implemented")]
+fn run_minimalloc_k() {
+    let set = read_from_path("tests/data/K.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
 */
