@@ -5,6 +5,7 @@ pub use std::{
     path::PathBuf,
     iter::Peekable,
     hash::Hash,
+    backtrace::Backtrace,
 };
 pub use thiserror::Error;
 pub use itertools::Itertools;
@@ -27,6 +28,8 @@ pub type ByteSteps = usize;
 ///
 /// This is arguably the most commonly occuring abstraction in
 /// `idealloc`.
+// TODO: Now that I've introduced IDs, isn't it smarter to switch from
+// `Vec` to `BTreeSet`? Investigate!
 pub type JobSet = Vec<Arc<Job>>;
 // `Arc` is needed for parallelism.
 

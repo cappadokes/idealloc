@@ -2,7 +2,7 @@
 name = "coreba"
 authors.workspace = true
 edition.workspace = true
-rust-version = "1.79.0"
+rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 version = "0.62.0"

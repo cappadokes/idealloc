@@ -147,7 +147,7 @@ impl Instance {
     /// Splits an [Instance] into two new instances, the first
     /// containing jobs of TRUE size up to `ceil`.
     pub fn split_by_height(self, ceil: ByteSteps) -> (Self, Self) {
-        let (small, high) = match Arc::try_unwrap(self.jobs) {
+        let (small, high): (JobSet, JobSet) = match Arc::try_unwrap(self.jobs) {
             Ok(v) => {
                 // If the `Arc` can be unwrapped, we save one
                 // round of atomic ref count updates.
@@ -161,7 +161,6 @@ impl Instance {
             }
         };
 
-        // TODO: assert that the two collections preserve sorting!
         (Self::new(small), Self::new(high))
     }
 

@@ -1,3 +1,5 @@
+use rayon::vec;
+
 use crate::utils::*;
 
 /// Executes the core `idealloc` loop for a `max_iters`
@@ -98,7 +100,6 @@ fn c_15(
             assert!(h_i as f64 <= h, "T2 fed with zero H!");
             let h_param = (h / h_i as f64).floor() as ByteSteps;
             let boxed = t_2(unit_jobs, h_param, h as ByteSteps, epsilon, None);
-            // TODO: how many hierarchy levels are present after T2?
             let mut guard = res.lock().unwrap();                
             guard.merge_via_ref(boxed);
     });
@@ -179,6 +180,7 @@ fn t_2(
     ctrl:       Option<T2Control>,
 ) -> Instance {
     let mut res = Instance::new(vec![]);
+    let mut res_jobs: JobSet = vec![];
     let mut all_unresolved: JobSet = vec![];
 
     // This is a recursive function. It always has `ctrl` filled
@@ -214,7 +216,67 @@ fn t_2(
     all_unresolved.sort_unstable();
     let igc_rows = interval_graph_coloring(all_unresolved);
 
+    // The produced rows implicitly generate "gaps", which will be used
+    // to generate each X_i's control structures. Let's find those gaps.
+    let mut points_to_allocate: BTreeSet<ByteSteps> = BTreeSet::new();
+    let mut row_count = 0;
+    let mut jobs_buf: JobSet = vec![];
+    for mut row in igc_rows {
+        points_to_allocate.append(&mut gap_finder(&row, ctrl.bounding_interval));
+        // The only remaining thing is to box the row and add it to the result.
+        // We do not immediately box it though; we need to box together
+        // as many rows as designated by the `h` argument!
+        row_count += 1;
+        jobs_buf.append(&mut row);
+        if row_count % h == 0 {
+            jobs_buf.sort_unstable();
+            res_jobs.push(Arc::new(Job::new_box(jobs_buf, h_real)));
+            jobs_buf = vec![];
+        }
+    }
+    if points_to_allocate.is_empty() {
+        // This is a familiar place. Without any critical points to
+        // add, subsequent X_i-related calls will fail.
+        // I know the solution, though: like Alexander the Great I
+        // will cheat, but call it an act of genius.
+        panic!("Something very smart is needed now!");
+    }
+
     unimplemented!()
+}
+
+/// Finds gaps in between jobs of an IGC row, and adds
+/// their endpoints to an ordered set, eventually returned.
+/// 
+/// Used in the context of Theorem 2.
+fn gap_finder(row_jobs: &JobSet, (alpha, omega): (ByteSteps, ByteSteps)) -> BTreeSet<ByteSteps> {
+    let mut res = BTreeSet::new();
+    // Again we use event traversal. Row jobs are already sorted
+    // since IGC itself is a product of event traversal.
+    let mut evts = get_events(&row_jobs);
+    // We either have found the next gap's start, or we haven't.
+    // Initialize it optimistically to the left extreme of our
+    // horizon.
+    let mut gap_start = Some(alpha);
+
+    while let Some(evt) = evts.pop() {
+        match evt.evt_t {
+            EventKind::Birth    => {
+                if let Some(v) = gap_start {
+                    if v < evt.time {
+                        res.insert(v);
+                        res.insert(evt.time);
+                    }
+                    gap_start = None;
+                }
+            },
+            EventKind::Death    => { gap_start = Some(evt.time); }
+        }
+    }
+    let last_gap_start = gap_start.unwrap();
+    if last_gap_start < omega { res.insert(last_gap_start); }
+
+    res
 }
 
 /// Implements Buchsbaum et al's Lemma 1.
@@ -305,13 +367,15 @@ fn strip_box_core(
                 .peekable()
         } else {
             strip.into_iter()
-                .sorted()
+                .sorted_unstable()
                 .peekable()
         };
         while iter.peek().is_some() {
+            let mut to_cut = strip_cuttin(&mut iter, true, group_size);
+            to_cut.sort_unstable();
             res.push(Arc::new(
                 Job::new_box(
-                    strip_cuttin(&mut iter, true, group_size),
+                    to_cut,
                      box_size)
                     )
                 );
