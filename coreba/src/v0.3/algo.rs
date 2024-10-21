@@ -14,9 +14,51 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 
     // Measure total allocation time.
     let total_start = Instant::now();
-    let epsilon = Epsilon::new(&mut input);
 
-    // Early stop in case of stumbling on perfect solution
+    // The first thing to do is stabilize ε.
+    let (h_min, h_max) = input.min_max_height();
+    let r = h_max as f64 / h_min as f64;
+    let lgr = r.log2();
+    let lg2r = lgr.powi(2);
+
+    // Default C17 val.
+    let mut epsilon = (h_max as f64 / input.load() as f64).powf(1.0 / 7.0);
+
+    // The next question to ask is: can Theorem 16 be run safely?
+    let f: fn(inp: Instance, e: f64) -> Instance = if epsilon <= 1.0 {
+        // "Maybe."
+        if lg2r >= 1.0 / epsilon {
+            // There are two conditions that must be met in order for T16 
+            // to start running: (i) μ < 1 and (ii) (μH).floor > h_min
+            //
+            // If one solved both inequalities for ε, one would get
+            // (lgr)^14 / r <= e^6 < (lgr)^12
+            // In order for ε to have some legit values, the two ends
+            // must honor the inequality.
+            assert!(lg2r / r < 1.0, "No solution exists");
+
+            let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
+            let big_end = (lg2r.powi(6)).powf(1.0 / 6.0);
+
+            if epsilon >= small_end && epsilon < big_end {
+                // "Convergence via T16 guaranteed."
+                t_16                
+            } else {
+                epsilon = init_rogue(input.clone(), small_end, big_end);
+                rogue
+            }
+        } else {
+            // "Convergence via T16 guaranteed."
+            t_16 
+        }
+    } else {
+        // "No, it can't".
+        let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
+        let big_end = (lg2r.powi(6)).powf(1.0 / 6.0);
+        epsilon = init_rogue(input.clone(), small_end, big_end);
+        rogue
+    };
+
     while iters_done < max_iters && best_opt > input.load() {
         let boxing_start = Instant::now();
         println!(
@@ -24,7 +66,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
             iters_done + 1,
             boxing_start.elapsed().as_micros()
         );
-        let boxed = t_16(input.clone(), epsilon.val);
+        let boxed = f(input.clone(), epsilon);
         debug_assert!(boxed.total_originals_boxed() == jobs_num_to_box, "Invalid boxing!");
         let placed = boxed.place();
         let current_opt = placed.opt();
@@ -39,6 +81,39 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
         "Total allocation time: {} μs",
         total_start.elapsed().as_micros()
     );
+}
+
+fn init_rogue(input: Instance, small: f64, big: f64) -> f64 {
+    panic!("not yet done");
+}
+
+// Does the lower branch of T16 until its conditions don't hold.
+// Returns a same-sized Instance at all cases.
+fn rogue(mut input: Instance, epsilon: f64) -> Instance {
+    let (h_min, h_max) = input.min_max_height();
+    let r = h_max as f64 / h_min as f64;
+
+    let lg2r = r.log2().powi(2);
+    let mu = epsilon / lg2r;
+    let h = (mu.powi(5) * (h_max as f64) / lg2r).ceil();
+    let target_size = (mu * h).floor() as ByteSteps;
+    if mu < 1.0 && target_size >= h_min {
+        let (x_s, x_l) = input.split_by_height(target_size);
+        let small_boxed = c_15(x_s, h, mu);
+        rogue(x_l.merge_with(small_boxed), epsilon)
+    } else {
+        let size_probe = input.jobs
+            .first()
+            .unwrap()
+            .size;
+        assert!(input.jobs
+            .iter()
+            .skip(1)
+            .all(|j| j.size == size_probe)
+        );
+
+        input
+    }
 }
 
 /// Implements Theorem 16 from Buchsbaum et al. Returns
