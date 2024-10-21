@@ -83,7 +83,8 @@ impl Instance {
             if small_end <= test && test < big_end {
                 test
             } else {
-                (big_end - small_end) / 2.0 + small_end
+                //(big_end - small_end) / 2.0 + small_end
+                small_end + (big_end - small_end) * 0.075
             }
         }
     }

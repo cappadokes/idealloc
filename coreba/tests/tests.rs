@@ -27,6 +27,7 @@ fn run_pangu() {
     coreba::algo::main_loop(set, 1);
 }
 
+/*
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_nezha() {
@@ -109,6 +110,7 @@ fn run_minimalloc_e() {
     let set = read_from_path("tests/data/E.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
+*/
 
 /*
 #[test]

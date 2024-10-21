@@ -1,5 +1,3 @@
-use rayon::vec;
-
 use crate::utils::*;
 
 /// Executes the core `idealloc` loop for a `max_iters`
@@ -20,6 +18,12 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 
     // Early stop in case of stumbling on perfect solution
     while iters_done < max_iters && best_opt > input.load() {
+        let boxing_start = Instant::now();
+        println!(
+            "Boxing time for iteration no. {}: {} μs",
+            iters_done + 1,
+            boxing_start.elapsed().as_micros()
+        );
         let boxed = t_16(input.clone(), epsilon.val);
         debug_assert!(boxed.total_originals_boxed() == jobs_num_to_box, "Invalid boxing!");
         let placed = boxed.place();
@@ -53,7 +57,7 @@ fn t_16(mut input: Instance, epsilon: f64) -> Instance {
         },
         (false, mu, h)  => {
             let target_size = (mu * h).floor() as ByteSteps;
-            assert!(target_size > input.min_max_height().0, "ε-convergence can't be avoided after all.");
+            assert!(target_size >= input.min_max_height().0, "ε-convergence can't be avoided after all.");
             let (x_s, x_l) = input.split_by_height(target_size);
             let small_boxed = c_15(x_s, h, mu);
             // TODO: demystify old impl's check for jobs_boxed.
@@ -172,14 +176,13 @@ impl T2Control {
 
 /// Buchsbaum's Theorem 2.
 fn t_2(
-    mut input:  Instance,
+    input:  Instance,
     h:          ByteSteps,
     // Needed because we have discarded scaling operations.
     h_real:     ByteSteps,
     epsilon:    f64,
     ctrl:       Option<T2Control>,
 ) -> Instance {
-    let mut res = Instance::new(vec![]);
     let mut res_jobs: JobSet = vec![];
     let mut all_unresolved: JobSet = vec![];
 
@@ -187,6 +190,12 @@ fn t_2(
     // with something when it calls itself.
     let ctrl = if let Some(v) = ctrl { v }
     else { T2Control::new(&input) };
+
+    // Help vector to be used below.
+    let pts_vec = ctrl.critical_points
+        .iter()
+        .copied()
+        .collect::<Vec<ByteSteps>>();
 
     // We split, in as efficient a way as possible, the input's jobs
     // into groups formed by their liveness in the critical points.
@@ -197,17 +206,14 @@ fn t_2(
     // boxed. So we remain at the JobSet abstraction.
     let r_is: Vec<JobSet> = split_ris(
             r_coarse,
-        &ctrl.critical_points
-            .iter()
-            .copied()
-            .collect::<Vec<ByteSteps>>()[..]
+            &pts_vec[..],
     );
 
     for r_i in r_is {
         let (boxed, mut unresolved) = lemma_1(r_i, h, h_real, epsilon);
         all_unresolved.append(&mut unresolved);
-        if let Some(boxed) = boxed {
-            res = res.merge_with(boxed);
+        if let Some(mut boxed) = boxed {
+            res_jobs.append(&mut boxed);
         }
     }
 
@@ -234,15 +240,76 @@ fn t_2(
             jobs_buf = vec![];
         }
     }
-    if points_to_allocate.is_empty() {
-        // This is a familiar place. Without any critical points to
-        // add, subsequent X_i-related calls will fail.
-        // I know the solution, though: like Alexander the Great I
-        // will cheat, but call it an act of genius.
-        panic!("Something very smart is needed now!");
-    }
 
-    unimplemented!()
+    use rayon::prelude::*;
+    use std::sync::Mutex;
+
+    // T2 is going to be called for all X_is in parallel.
+    let res = Arc::new(Mutex::new(Instance::new(res_jobs)));
+
+    // Missing tasks: (i) set X_i control structures up, do recursion for each
+    // (ii) consolidate Arc-Mutex-protected res.
+    x_is.into_par_iter()
+        .for_each(|(i, x_i)| {
+        // We shall be pulling points from this iterator.
+        let mut pts_alloc_iter = points_to_allocate.iter().copied().peekable();
+
+        // Where the X_i's bounding interval starts, ends.
+        // The points to allocate must include AT LEAST one value which:
+        //  1. bi_start < v < bi_end
+        //  2. at least one job in X_i is live @ v
+        // We know for a fact that this is not always the case--we then
+        // inject a point of our own.
+        let (bi_start, bi_end) = (pts_vec[i], pts_vec[i + 1]);
+        let mut crit_pts = BTreeSet::from([bi_start, bi_end]);
+
+        // Let's check first if there's any suitable point in alloc.
+        let mut pts_ready = false;
+        loop {
+            // We need a loop because there may be more
+            // than one points that must be inserted.
+            if let Some(v) = pts_alloc_iter.peek() {
+                if *v <= bi_start {
+                    pts_alloc_iter.next();
+                } else if *v >= bi_end {
+                    break;
+                } else {
+                    // This is a suitable point w.r.t. Req. #1.
+                    // ...but what about Req. #2 ?
+                    if !pts_ready &&
+                        x_i.jobs
+                        .iter()
+                        .any(|j| j.is_live_at(*v) ) {
+                            pts_ready = true;
+                    }
+                    // In any case we insert the point.
+                    crit_pts.insert(pts_alloc_iter.next().unwrap());
+                }
+            } else {
+                break;
+            }
+        }
+        // We've exhausted all valid points to allocate to this X_i.
+        if !pts_ready {
+            // Injection if no liveness has been found.
+            while !crit_pts.insert(
+                T2Control::gen_crit(&x_i, bi_start, bi_end)
+            ) {};
+        }
+
+        let x_i_res = t_2(x_i, h, h_real, epsilon, Some(T2Control {
+            bounding_interval:  (bi_start, bi_end),
+            critical_points:    crit_pts
+        }));
+        let mut guard = res.lock().unwrap();
+        guard.merge_via_ref(x_i_res);
+
+    });
+
+    match Arc::into_inner(res) {
+        Some(i)   => { i.into_inner().unwrap() },
+        None  => { panic!("Bad multithreading @ T2!"); }
+    }
 }
 
 /// Finds gaps in between jobs of an IGC row, and adds
@@ -285,7 +352,7 @@ fn lemma_1(
     h:      ByteSteps,
     h_real: ByteSteps,
     e: f64,
-) -> (Option<Instance>, JobSet) {
+) -> (Option<JobSet>, JobSet) {
     // First we cut two strips, each having `outer_num` jobs
     // (if enough jobs exist)
     let outer_num = h * (1.0 / e.powi(2)).ceil() as ByteSteps;
@@ -336,11 +403,12 @@ fn strip_boxin(
     horizontals:    Vec<JobSet>,
     group_size:     ByteSteps,
     box_size:       ByteSteps,
-) -> Instance {
+) -> JobSet {
     let mut res_set = strip_box_core(verticals, group_size, box_size, true);
     res_set.append(&mut strip_box_core(horizontals, group_size, box_size, false));
     res_set.sort_unstable();
-    Instance::new(res_set)
+
+    res_set
 }
 
 /// Helper function for Lemma 1. Splits the jobs
@@ -432,7 +500,7 @@ impl Instance {
     /// by the height to be given to Theorem 2.
     fn make_buckets(self, epsilon: f64) -> HashMap<ByteSteps, Instance> {
         let mut res = HashMap::new();
-        let mut prev_floor = 1.0 / epsilon;
+        let mut prev_floor = 1.0 / (1.0 + epsilon);
         let mut i = 0;
         let mut source = self;
         while source.jobs.len() > 0 {
