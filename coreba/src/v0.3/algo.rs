@@ -84,7 +84,42 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 }
 
 fn init_rogue(input: Instance, small: f64, big: f64) -> f64 {
-    panic!("not yet done");
+    let mut e = small;
+    loop {
+        match rogue_probe(input.clone(), e) {
+            Some(_) => { 
+                break e; 
+            },
+            None    => { e = e + (big - e) * 0.01 }
+        }
+    }
+}
+
+fn rogue_probe(mut input: Instance, epsilon: f64) -> Option<Instance> {
+    let (h_min, h_max) = input.min_max_height();
+    let r = h_max as f64 / h_min as f64;
+
+    let lg2r = r.log2().powi(2);
+    let mu = epsilon / lg2r;
+    let h = (mu.powi(5) * (h_max as f64) / lg2r).ceil();
+    let target_size = (mu * h).floor() as ByteSteps;
+
+    if mu >= 1.0 {
+        None
+    } else if mu < 1.0 && target_size >= h_max {
+        Some(input)
+    } else if mu < 1.0 && target_size >= h_min {
+        let (x_s, x_l) = input.split_by_height(target_size);
+        for (h_i, _) in x_s.clone().make_buckets(mu) {
+            if (h_i as f64) > h {
+                return None;
+            }
+        }
+        let small_boxed = c_15(x_s, h, mu);
+        rogue_probe(x_l.merge_with(small_boxed), epsilon)
+    } else {
+        None
+    }
 }
 
 // Does the lower branch of T16 until its conditions don't hold.
@@ -97,22 +132,14 @@ fn rogue(mut input: Instance, epsilon: f64) -> Instance {
     let mu = epsilon / lg2r;
     let h = (mu.powi(5) * (h_max as f64) / lg2r).ceil();
     let target_size = (mu * h).floor() as ByteSteps;
-    if mu < 1.0 && target_size >= h_min {
+    if mu < 1.0 && target_size >= h_max {
+        c_15(input, h, mu)
+    } else if mu < 1.0 && target_size >= h_min {
         let (x_s, x_l) = input.split_by_height(target_size);
         let small_boxed = c_15(x_s, h, mu);
         rogue(x_l.merge_with(small_boxed), epsilon)
     } else {
-        let size_probe = input.jobs
-            .first()
-            .unwrap()
-            .size;
-        assert!(input.jobs
-            .iter()
-            .skip(1)
-            .all(|j| j.size == size_probe)
-        );
-
-        input
+        panic!("Unreachable!");
     }
 }
 
