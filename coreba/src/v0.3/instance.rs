@@ -37,6 +37,18 @@ impl Instance {
         }
     }
 
+    pub fn get_safety_info(&mut self, epsilon: f64) -> (f64, f64, f64, bool) {
+        let (h_min, h_max) = self.min_max_height();
+        let r = h_max as f64 / h_min as f64;
+        let lg2r = r.log2().powi(2);
+        let mu = epsilon / lg2r;
+        let h = (mu.powi(5) * (h_max as f64) / lg2r).ceil();
+        let target_size = (mu * h).floor();
+        let x_1 = (5.0_f64.sqrt() - 1.0) / 2.0;
+
+        (r, mu, h, mu < x_1 && target_size >= h_min as f64)
+    }
+
     /// Returns (smallest birth, largest death).
     pub fn get_horizon(&self) -> (ByteSteps, ByteSteps) {
         (
@@ -197,7 +209,7 @@ impl Instance {
     /// Counts how many of the *ORIGINAL* buffers have
     /// been boxed somewhere into the instance.
     pub fn total_originals_boxed(&self) -> u32 {
-        self.jobs.iter().fold(0, |sum, j| sum + j.originals_boxed)
+        get_total_originals_boxed(&self.jobs)
     }
 
     /// Merges `self` with another [Instance].

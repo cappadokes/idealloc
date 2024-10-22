@@ -148,6 +148,10 @@ pub fn get_load(jobs: &JobSet) -> ByteSteps {
     max
 }
 
+pub fn get_total_originals_boxed(jobs: &JobSet) -> u32 {
+    jobs.iter().fold(0, |sum, j| sum + j.originals_boxed)
+}
+
 /// Self-explanatory. Each [JobSet] of the returned vector
 /// is an IGC row. Rows returned are ordered by DECREASING
 /// lifespan--the longest rows are put first.

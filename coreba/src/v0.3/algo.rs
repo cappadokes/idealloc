@@ -35,10 +35,11 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
             // (lgr)^14 / r <= e^6 < (lgr)^12
             // In order for ε to have some legit values, the two ends
             // must honor the inequality.
-            assert!(lg2r / r < 1.0, "No solution exists");
+            //assert!(lg2r / r < 1.0, "No solution exists");
 
             let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
-            let big_end = (lg2r.powi(6)).powf(1.0 / 6.0);
+            let big_end = ((5.0_f64.sqrt() - 1.0) / 2.0) * lg2r;
+            assert!(big_end > small_end, "No solution exists");
 
             if epsilon >= small_end && epsilon < big_end {
                 // "Convergence via T16 guaranteed."
@@ -54,7 +55,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
     } else {
         // "No, it can't".
         let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
-        let big_end = (lg2r.powi(6)).powf(1.0 / 6.0);
+        let big_end = ((5.0_f64.sqrt() - 1.0) / 2.0) * lg2r;
         epsilon = init_rogue(input.clone(), small_end, big_end);
         rogue
     };
@@ -66,8 +67,17 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
             iters_done + 1,
             boxing_start.elapsed().as_micros()
         );
-        let boxed = f(input.clone(), epsilon);
-        debug_assert!(boxed.total_originals_boxed() == jobs_num_to_box, "Invalid boxing!");
+        let mut boxed = f(input.clone(), epsilon);
+        let _init_boxed = boxed.total_originals_boxed();
+        let (_, mut mu, _, _) = boxed.get_safety_info(epsilon);
+        let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
+        if mu > mu_lim {
+            mu = 0.99 * mu_lim;
+        }
+        let final_h = boxed.min_max_height().1 as f64 / mu;
+        boxed = c_15(boxed, final_h, mu);
+        let final_boxed = boxed.total_originals_boxed();
+        debug_assert!(final_boxed == jobs_num_to_box, "Invalid boxing!");
         let placed = boxed.place();
         let current_opt = placed.opt();
         if current_opt < best_opt {
@@ -85,61 +95,39 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 
 fn init_rogue(input: Instance, small: f64, big: f64) -> f64 {
     let mut e = small;
+    let mut min_r = f64::MAX;
+    let mut best_e = e;
+    let mut tries_left = 3;
     loop {
-        match rogue_probe(input.clone(), e) {
-            Some(_) => { 
-                break e; 
-            },
-            None    => { e = e + (big - e) * 0.01 }
-        }
-    }
-}
-
-fn rogue_probe(mut input: Instance, epsilon: f64) -> Option<Instance> {
-    let (h_min, h_max) = input.min_max_height();
-    let r = h_max as f64 / h_min as f64;
-
-    let lg2r = r.log2().powi(2);
-    let mu = epsilon / lg2r;
-    let h = (mu.powi(5) * (h_max as f64) / lg2r).ceil();
-    let target_size = (mu * h).floor() as ByteSteps;
-
-    if mu >= 1.0 {
-        None
-    } else if mu < 1.0 && target_size >= h_max {
-        Some(input)
-    } else if mu < 1.0 && target_size >= h_min {
-        let (x_s, x_l) = input.split_by_height(target_size);
-        for (h_i, _) in x_s.clone().make_buckets(mu) {
-            if (h_i as f64) > h {
-                return None;
+        if tries_left > 0 {
+            let mut test = rogue(input.clone(), e);
+            let (r, _, _, _) = test.get_safety_info(e);
+            if r < min_r {
+                min_r = r;
+                best_e = e;
+            } else {
+                tries_left -= 1;
             }
+            e += (big - e) * 0.01;
+        } else { 
+            break best_e; 
         }
-        let small_boxed = c_15(x_s, h, mu);
-        rogue_probe(x_l.merge_with(small_boxed), epsilon)
-    } else {
-        None
     }
 }
 
 // Does the lower branch of T16 until its conditions don't hold.
 // Returns a same-sized Instance at all cases.
 fn rogue(mut input: Instance, epsilon: f64) -> Instance {
-    let (h_min, h_max) = input.min_max_height();
-    let r = h_max as f64 / h_min as f64;
-
-    let lg2r = r.log2().powi(2);
-    let mu = epsilon / lg2r;
-    let h = (mu.powi(5) * (h_max as f64) / lg2r).ceil();
+    let (_r, mu, h, is_safe) = input.get_safety_info(epsilon);
     let target_size = (mu * h).floor() as ByteSteps;
-    if mu < 1.0 && target_size >= h_max {
-        c_15(input, h, mu)
-    } else if mu < 1.0 && target_size >= h_min {
+
+    if is_safe {
         let (x_s, x_l) = input.split_by_height(target_size);
         let small_boxed = c_15(x_s, h, mu);
         rogue(x_l.merge_with(small_boxed), epsilon)
     } else {
-        panic!("Unreachable!");
+        // Done.
+        input
     }
 }
 
@@ -341,6 +329,10 @@ fn t_2(
             res_jobs.push(Arc::new(Job::new_box(jobs_buf, h_real)));
             jobs_buf = vec![];
         }
+    }
+    if !jobs_buf.is_empty() {
+        jobs_buf.sort_unstable();
+        res_jobs.push(Arc::new(Job::new_box(jobs_buf, h_real)));
     }
 
     use rayon::prelude::*;
