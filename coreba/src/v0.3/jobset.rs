@@ -60,19 +60,18 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
         }
     }
 
-    Ok(in_elts
-        .into_iter()
-        // Unstable sorting is faster, as long as one doesn't
-        // care about tie-breaks (and we don't).
-        //
-        // There is no way to check whether the input vector is
-        // sorted without having to sort it one more time. We *could*
-        // rely on the user to provide an additional `is_sorted`
-        // parameter, *or* we could wait until `Vec`'s [`is_sorted`](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.is_sorted)
-        // method gets stabilized.
-        .sorted_unstable()
-        .map(|x| Arc::new(x))
-        .collect())
+    if in_elts.is_sorted() {
+        Ok(in_elts
+            .into_iter()
+            .map(|x| Arc::new(x))
+            .collect())
+    } else {
+        Ok(in_elts
+            .into_iter()
+            .sorted_unstable()
+            .map(|x| Arc::new(x))
+            .collect())
+    }
 }
 
 /// Forms Theorem 2's R_i groups. 
@@ -239,7 +238,7 @@ impl Ord for Event {
             other.time.cmp(&self.time)
         } else {
             if self.evt_t == other.evt_t {
-                other.time.cmp(&self.time)
+                std::cmp::Ordering::Equal
             } else {
                 match self.evt_t {
                     EventKind::Birth    => { std::cmp::Ordering::Less },
