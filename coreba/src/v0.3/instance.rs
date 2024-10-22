@@ -54,40 +54,6 @@ impl Instance {
         )
     }
 
-    /// Replaces Buchsbaum et al's Corollary 17 for
-    /// initializing ε. Makes sure that the rest of 
-    /// the algorithm will converge.
-    pub fn init_e(&mut self) -> f64 {
-        let (h_min, h_max) = self.min_max_height();
-        let r = h_max as f64 / h_min as f64;
-        let lgr = r.log2();
-        let lg2r = lgr.powi(2);
-
-        // Default C17 val.
-        let test = (h_max as f64 / self.load() as f64).powf(1.0 / 7.0);
-        if lg2r < 1.0 / test {
-            test
-        } else {
-            // There are two conditions that must be met in order for boxing
-            // to converge: (i) μ < 1 and (ii) (μH).floor > h_min
-            //
-            // If one solved both inequalities for ε, one would get
-            // (lgr)^14 / r <= e^6 < (lgr)^12
-            // In order for ε to have some legit values, the two ends
-            // must honor the inequality.
-            assert!(lg2r / r < 1.0, "No solution exists");
-
-            let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
-            let big_end = (lg2r.powi(6)).powf(1.0 / 6.0);
-            
-            if small_end <= test && test < big_end {
-                test
-            } else {
-                (big_end - small_end) / 2.0 + small_end
-            }
-        }
-    }
-
     /// Calculates the makespan.
     pub fn opt(&self) -> ByteSteps {
         unimplemented!()

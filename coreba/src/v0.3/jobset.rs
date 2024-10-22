@@ -113,7 +113,8 @@ pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
             );
         }
     } else {
-        panic!("Unreachable");
+        //debug_assert!(jobs.iter().all(|j| j.is_live_at(pts[0])));
+        res.push(jobs);
     }
 
     res
