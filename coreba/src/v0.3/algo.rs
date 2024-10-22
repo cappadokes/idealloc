@@ -64,15 +64,17 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
         rogue
     };
 
+    let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
     while iters_done < max_iters && best_opt > input.load() {
+        let mut to_box = input.clone();
+        let h_max = to_box.min_max_height().1 as f64;
         let boxing_start = Instant::now();
-        let mut boxed = f(input.clone(), epsilon);
+        let mut boxed = f(to_box, epsilon);
         let (_, mut mu, _, _) = boxed.get_safety_info(epsilon);
-        let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
         if mu > mu_lim {
             mu = 0.99 * mu_lim;
         }
-        let final_h = boxed.min_max_height().1 as f64 / mu;
+        let final_h = h_max / mu;
         boxed = c_15(boxed, final_h, mu);
         println!(
             "Boxing time for iteration no. {}: {} μs",
