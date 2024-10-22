@@ -26,7 +26,6 @@ fn run_pangu() {
     let set = read_from_path("tests/data/pangu_2.6B.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
-
 /*
 #[test]
 #[should_panic(expected = "not implemented")]
@@ -151,4 +150,5 @@ fn run_minimalloc_j() {
 fn run_minimalloc_k() {
     let set = read_from_path("tests/data/K.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
-}*/
+}
+*/

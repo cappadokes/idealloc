@@ -125,6 +125,7 @@ impl Instance {
     /// Splits an [Instance] into two new instances, the first
     /// containing jobs of TRUE size up to `ceil`.
     pub fn split_by_height(self, ceil: ByteSteps) -> (Self, Self) {
+        let to_split = self.jobs.len();
         let (small, high): (JobSet, JobSet) = match Arc::try_unwrap(self.jobs) {
             Ok(v) => {
                 // If the `Arc` can be unwrapped, we save one
@@ -138,6 +139,8 @@ impl Instance {
                 .partition(|j| j.size <= ceil)
             }
         };
+
+        assert!(small.len() + high.len() == to_split);
 
         (Self::new(small), Self::new(high))
     }
@@ -214,13 +217,14 @@ impl Instance {
 
     /// Merges `self` with another [Instance].
     pub fn merge_with(mut self, mut other: Self) -> Self {
+        let to_join = self.jobs.len() + other.jobs.len();
         let all: Vec<Arc<Job>> = match Arc::try_unwrap(self.jobs) {
             Ok(v) => {
                 v.into_iter()
                     .chain(other.jobs
                         .iter()
-                        .cloned()
-                    ).sorted_unstable()
+                        .cloned())
+                    .sorted_unstable()
                     .collect()
             },
             Err(arc)    => {
@@ -233,6 +237,7 @@ impl Instance {
         };
         self.jobs = Arc::new(all);
         self.info = Info::merge(&mut self, &mut other);
+        assert!(self.jobs.len() == to_join);
 
         self
     }
@@ -240,6 +245,7 @@ impl Instance {
     /// Does the same as [`Instance::merge_with`], but without consuming
     /// `self`. Used in the context of consolidating `Mutex`-protected results.
     pub fn merge_via_ref(&mut self, mut other: Self) {
+        let to_join = self.jobs.len() + other.jobs.len();
         let all: Vec<Arc<Job>> = self.jobs
             .iter()
             .chain(other.jobs.iter())
@@ -248,5 +254,7 @@ impl Instance {
             .collect();
         self.jobs = Arc::new(all);
         self.info = Info::merge(self, &mut other);
+
+        assert!(self.jobs.len() == to_join);
     }
 }

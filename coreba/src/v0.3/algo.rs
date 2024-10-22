@@ -39,12 +39,16 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 
             let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
             let big_end = ((5.0_f64.sqrt() - 1.0) / 2.0) * lg2r;
-            assert!(big_end > small_end, "No solution exists");
-
-            if epsilon >= small_end && epsilon < big_end {
-                // "Convergence via T16 guaranteed."
-                t_16                
+            if big_end > small_end {
+                if epsilon >= small_end && epsilon < big_end {
+                    // "Convergence via T16 guaranteed."
+                    t_16                
+                } else {
+                    epsilon = init_rogue(input.clone(), small_end, big_end);
+                    rogue
+                }
             } else {
+                // "No, it can't".
                 epsilon = init_rogue(input.clone(), small_end, big_end);
                 rogue
             }
@@ -62,13 +66,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 
     while iters_done < max_iters && best_opt > input.load() {
         let boxing_start = Instant::now();
-        println!(
-            "Boxing time for iteration no. {}: {} μs",
-            iters_done + 1,
-            boxing_start.elapsed().as_micros()
-        );
         let mut boxed = f(input.clone(), epsilon);
-        let _init_boxed = boxed.total_originals_boxed();
         let (_, mut mu, _, _) = boxed.get_safety_info(epsilon);
         let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
         if mu > mu_lim {
@@ -76,8 +74,14 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
         }
         let final_h = boxed.min_max_height().1 as f64 / mu;
         boxed = c_15(boxed, final_h, mu);
+        println!(
+            "Boxing time for iteration no. {}: {} μs",
+            iters_done + 1,
+            boxing_start.elapsed().as_micros()
+        );
         let final_boxed = boxed.total_originals_boxed();
         debug_assert!(final_boxed == jobs_num_to_box, "Invalid boxing!");
+        unimplemented!();
         let placed = boxed.place();
         let current_opt = placed.opt();
         if current_opt < best_opt {
@@ -105,6 +109,7 @@ fn init_rogue(input: Instance, small: f64, big: f64) -> f64 {
             if r < min_r {
                 min_r = r;
                 best_e = e;
+                tries_left = 3;
             } else {
                 tries_left -= 1;
             }
@@ -266,13 +271,14 @@ impl T2Control {
 
 /// Buchsbaum's Theorem 2.
 fn t_2(
-    input:  Instance,
+    input:      Instance,
     h:          ByteSteps,
     // Needed because we have discarded scaling operations.
     h_real:     ByteSteps,
     epsilon:    f64,
     ctrl:       Option<T2Control>,
 ) -> Instance {
+    let total_to_box = input.jobs.len();
     let mut res_jobs: JobSet = vec![];
     let mut all_unresolved: JobSet = vec![];
 
@@ -290,7 +296,9 @@ fn t_2(
     // We split, in as efficient a way as possible, the input's jobs
     // into groups formed by their liveness in the critical points.
     let (r_coarse, x_is) = input.split_by_liveness(&ctrl.critical_points);
+    let r_to_box = r_coarse.len();
     assert!(!r_coarse.is_empty(), "Theorem 2 entered infinite loop");
+
     // X_is are going to be passed in future iterations and it makes sense
     // to make Instances out of them. R_is, however, will be immediately
     // boxed. So we remain at the JobSet abstraction.
@@ -300,6 +308,7 @@ fn t_2(
     );
 
     for r_i in r_is {
+        let r_i_tot = r_i.len();
         let (boxed, mut unresolved) = lemma_1(r_i, h, h_real, epsilon);
         all_unresolved.append(&mut unresolved);
         if let Some(mut boxed) = boxed {
@@ -395,13 +404,15 @@ fn t_2(
             bounding_interval:  (bi_start, bi_end),
             critical_points:    crit_pts
         }));
+
         let mut guard = res.lock().unwrap();
         guard.merge_via_ref(x_i_res);
-
     });
 
     match Arc::into_inner(res) {
-        Some(i)   => { i.into_inner().unwrap() },
+        Some(i)   => {
+            i.into_inner().unwrap()
+        },
         None  => { panic!("Bad multithreading @ T2!"); }
     }
 }
@@ -478,9 +489,11 @@ fn lemma_1(
                 inner_hor.push(inner_2);
             }
 
+            outer.append(&mut outer_2);
             (Some(strip_boxin(inner_vert, inner_hor, h, h_real)), outer)
         } else {
             outer.append(&mut outer_2);
+
             (None, outer)
         }
     } else {
@@ -500,7 +513,7 @@ fn strip_boxin(
 ) -> JobSet {
     let mut res_set = strip_box_core(verticals, group_size, box_size, true);
     res_set.append(&mut strip_box_core(horizontals, group_size, box_size, false));
-    res_set.sort_unstable();
+    //res_set.sort_unstable();
 
     res_set
 }
@@ -541,7 +554,7 @@ fn strip_box_core(
                      box_size)
                     )
                 );
-        }        
+        }
     };
 
     res
@@ -597,17 +610,22 @@ impl Instance {
         let mut prev_floor = 1.0 / (1.0 + epsilon);
         let mut i = 0;
         let mut source = self;
+        let to_split = source.jobs.len();
+        let mut dealt_with = 0;
         while source.jobs.len() > 0 {
             let h = (1.0 + epsilon).powi(i);
             if source.jobs.iter().any(|j| j.size as f64 > prev_floor && j.size as f64 <= h) {
                 let h_split = h.floor() as ByteSteps;
                 let (toward_bucket, rem) = source.split_by_height(h_split);
+                dealt_with += toward_bucket.jobs.len();
                 res.insert(h_split, toward_bucket);
                 source = rem;
             }
             prev_floor = h;
             i += 1;
         }
+
+        assert!(to_split == dealt_with);
 
         res
     }

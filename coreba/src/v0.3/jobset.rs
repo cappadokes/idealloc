@@ -74,6 +74,27 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
     }
 }
 
+pub fn originals_contained(jobs: &JobSet) -> u32 {
+    let version_1 = jobs.iter().fold(0, |count, j|  {
+        if j.is_original() { count + 1 }
+        else { count + j.originals_boxed }
+    });
+
+    let mut version_2 = 0;
+    for j in jobs {
+        if j.is_original() {
+            version_2 += 1;
+        } else {
+            let contents_ref = j.contents.as_ref().unwrap();
+            version_2 += originals_contained(contents_ref);
+        }
+    };
+
+    assert!(version_1 == version_2);
+
+    version_2
+}
+
 /// Forms Theorem 2's R_i groups. 
 pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
     let mut res = vec![];
@@ -113,7 +134,6 @@ pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
             );
         }
     } else {
-        //debug_assert!(jobs.iter().all(|j| j.is_live_at(pts[0])));
         res.push(jobs);
     }
 
