@@ -6,92 +6,57 @@ use crate::utils::*;
 pub fn main_loop(input: JobSet, max_iters: u32) {
     use std::time::Instant;
 
+    // Measure total allocation time.
+    let total_start = Instant::now();
+
     // Initializations...
     let mut input = Instance::new(input);
     let mut iters_done = 0;
     let mut best_opt = ByteSteps::MAX;
     let jobs_num_to_box = input.jobs.len() as u32;
 
-    // Measure total allocation time.
-    let total_start = Instant::now();
-
     // The first thing to do is stabilize ε.
     let (h_min, h_max) = input.min_max_height();
     let r = h_max as f64 / h_min as f64;
     let lgr = r.log2();
     let lg2r = lgr.powi(2);
+    let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
+    let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
+    let big_end = mu_lim * lg2r;
 
-    // Default C17 val.
-    let mut epsilon = (h_max as f64 / input.load() as f64).powf(1.0 / 7.0);
-
-    // The next question to ask is: can Theorem 16 be run safely?
-    let f: fn(inp: Instance, e: f64) -> Instance = if epsilon <= 1.0 {
-        // "Maybe."
-        if lg2r >= 1.0 / epsilon {
-            // There are two conditions that must be met in order for T16 
-            // to start running: (i) μ < 1 and (ii) (μH).floor > h_min
-            //
-            // If one solved both inequalities for ε, one would get
-            // (lgr)^14 / r <= e^6 < (lgr)^12
-            // In order for ε to have some legit values, the two ends
-            // must honor the inequality.
-            //assert!(lg2r / r < 1.0, "No solution exists");
-
-            let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
-            let big_end = ((5.0_f64.sqrt() - 1.0) / 2.0) * lg2r;
-            if big_end > small_end {
-                if epsilon >= small_end && epsilon < big_end {
-                    // "Convergence via T16 guaranteed."
-                    t_16                
-                } else {
-                    epsilon = init_rogue(input.clone(), small_end, big_end);
-                    rogue
-                }
-            } else {
-                // "No, it can't".
-                epsilon = init_rogue(input.clone(), small_end, big_end);
-                rogue
-            }
-        } else {
-            // "Convergence via T16 guaranteed."
-            t_16 
-        }
+    // Calling `rogue` is not always safe!
+    let mut rogue_safe = true;
+    let (epsilon, mut boxed) = if small_end < big_end {
+        init_rogue(input.clone(), small_end, big_end)
     } else {
-        // "No, it can't".
-        let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
-        let big_end = ((5.0_f64.sqrt() - 1.0) / 2.0) * lg2r;
-        epsilon = init_rogue(input.clone(), small_end, big_end);
-        rogue
+        rogue_safe = false;
+        (0.99 * big_end, input.clone())
     };
 
-    let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
-    while iters_done < max_iters && best_opt > input.load() {
-        let mut to_box = input.clone();
-        let h_max = to_box.min_max_height().1 as f64;
-        let boxing_start = Instant::now();
-        let mut boxed = f(to_box, epsilon);
-        let (_, mut mu, _, _) = boxed.get_safety_info(epsilon);
-        if mu > mu_lim {
-            mu = 0.99 * mu_lim;
-        }
-        let final_h = h_max / mu;
+    // Initializations related to the last
+    // invocation of C15.
+    let (_, mut mu, _, _) = boxed.get_safety_info(epsilon);
+    if mu > mu_lim {
+        mu = 0.99 * mu_lim;
+    }
+    let final_h = h_max as f64 / mu;
+
+    loop {
         boxed = c_15(boxed, final_h, mu);
-        println!(
-            "Boxing time for iteration no. {}: {} μs",
-            iters_done + 1,
-            boxing_start.elapsed().as_micros()
-        );
         let final_boxed = boxed.total_originals_boxed();
         debug_assert!(final_boxed == jobs_num_to_box, "Invalid boxing!");
-        unimplemented!();
-        let placed = boxed.place();
-        let current_opt = placed.opt();
+        let current_opt = boxed.place();
         if current_opt < best_opt {
             best_opt = current_opt;
             input.update_offsets();
         }
         iters_done += 1;
-    }
+        if iters_done < max_iters && best_opt > input.load() {
+            if rogue_safe {
+                boxed = rogue(input.clone(), epsilon);
+            }
+        } else { break; }
+    };
 
     println!(
         "Total allocation time: {} μs",
@@ -99,11 +64,16 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
     );
 }
 
-fn init_rogue(input: Instance, small: f64, big: f64) -> f64 {
+/// Calls [rogue] for a variety of ε-values, returning the one
+/// which results in the smallest min/max height ratio.
+/// 
+/// Also returns the winning value's almost-converged instance.
+fn init_rogue(input: Instance, small: f64, big: f64) -> (f64, Instance) {
     let mut e = small;
     let mut min_r = f64::MAX;
     let mut best_e = e;
     let mut tries_left = 3;
+    let mut best: Instance = input.clone();
     loop {
         if tries_left > 0 {
             let mut test = rogue(input.clone(), e);
@@ -111,13 +81,14 @@ fn init_rogue(input: Instance, small: f64, big: f64) -> f64 {
             if r < min_r {
                 min_r = r;
                 best_e = e;
+                best = test.clone();
                 tries_left = 3;
             } else {
                 tries_left -= 1;
             }
             e += (big - e) * 0.01;
         } else { 
-            break best_e; 
+            break (best_e, best); 
         }
     }
 }
@@ -136,46 +107,6 @@ fn rogue(mut input: Instance, epsilon: f64) -> Instance {
         // Done.
         input
     }
-}
-
-/// Implements Theorem 16 from Buchsbaum et al. Returns
-/// a modified [`Instance`] in case of convergence, and
-/// the number of original jobs that this run managed
-/// to box otherwise.
-fn t_16(mut input: Instance, epsilon: f64) -> Instance {
-    match t_16_cond(&mut input, epsilon) {
-        (true, _, _)    => {
-            let h_max = input.min_max_height().1 as f64;
-            c_15(
-                input,
-                (h_max / epsilon).ceil(),
-                epsilon,
-            )
-        },
-        (false, mu, h)  => {
-            let target_size = (mu * h).floor() as ByteSteps;
-            assert!(target_size >= input.min_max_height().0, "ε-convergence can't be avoided after all.");
-            let (x_s, x_l) = input.split_by_height(target_size);
-            let small_boxed = c_15(x_s, h, mu);
-            // TODO: demystify old impl's check for jobs_boxed.
-            t_16(x_l.merge_with(small_boxed), epsilon)
-        }
-    }
-}
-
-/// Checks if Theorem 16 has converged.
-fn t_16_cond(input: &mut Instance, epsilon: f64) -> (bool, f64, f64) {
-    let (h_min, h_max) = input.min_max_height();
-    let r = h_max as f64 / h_min as f64;
-
-    let lg2r = r.log2().powi(2);
-    let mu = epsilon / lg2r;
-
-    (
-        lg2r < 1.0 / epsilon,
-        mu,
-        (mu.powi(5) * (h_max as f64) / lg2r).ceil(),
-    )
 }
 
 fn c_15(
@@ -280,7 +211,6 @@ fn t_2(
     epsilon:    f64,
     ctrl:       Option<T2Control>,
 ) -> Instance {
-    let total_to_box = input.jobs.len();
     let mut res_jobs: JobSet = vec![];
     let mut all_unresolved: JobSet = vec![];
 
@@ -298,7 +228,6 @@ fn t_2(
     // We split, in as efficient a way as possible, the input's jobs
     // into groups formed by their liveness in the critical points.
     let (r_coarse, x_is) = input.split_by_liveness(&ctrl.critical_points);
-    let r_to_box = r_coarse.len();
     assert!(!r_coarse.is_empty(), "Theorem 2 entered infinite loop");
 
     // X_is are going to be passed in future iterations and it makes sense
@@ -310,7 +239,6 @@ fn t_2(
     );
 
     for r_i in r_is {
-        let r_i_tot = r_i.len();
         let (boxed, mut unresolved) = lemma_1(r_i, h, h_real, epsilon);
         all_unresolved.append(&mut unresolved);
         if let Some(mut boxed) = boxed {
@@ -600,7 +528,7 @@ impl Instance {
     // Unbox and tighten. Probably needs to be
     // implemented for another type or YIELD
     // another type.
-    fn place(self) -> Self {
+    fn place(&self) -> ByteSteps {
         unimplemented!()
     }
 

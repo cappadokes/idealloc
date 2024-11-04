@@ -42,7 +42,7 @@ fn run_tiny() {
     let set = read_from_path("tests/data/tiny_bert.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
-/*
+
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_toy() {
@@ -153,4 +153,3 @@ fn run_minimalloc_k() {
     let set = read_from_path("tests/data/K.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
-*/

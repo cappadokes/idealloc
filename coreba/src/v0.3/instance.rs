@@ -37,6 +37,11 @@ impl Instance {
         }
     }
 
+    /// Checks an [Instance] a candidate ε-value and returns:
+    ///     (i)     its max/min height ratio, `r`
+    ///     (ii)    the implied `μ` = ε / (log`r`)^2
+    ///     (iii)   the box size with which Corollary 15 would be called
+    ///     (iv)    whether it's safe to mimic Theorem 16
     pub fn get_safety_info(&mut self, epsilon: f64) -> (f64, f64, f64, bool) {
         let (h_min, h_max) = self.min_max_height();
         let r = h_max as f64 / h_min as f64;
