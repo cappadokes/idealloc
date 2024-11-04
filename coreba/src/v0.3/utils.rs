@@ -1,4 +1,5 @@
 pub use std::{
+    rc::Rc,
     sync::Arc,
     io::{BufRead, BufReader},
     collections::{HashMap, BinaryHeap, BTreeSet},
@@ -130,3 +131,60 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
 }
 
 //---END EXTERNAL INTERFACES
+
+//---START PLACEMENT PRIMITIVES
+/// A [Job] which has been assigned an offset in
+/// some contiguous address space.
+pub struct PlacedJob {
+    pub descr:          Arc<Job>,
+    pub offset:         ByteSteps,
+    // The `times_placed` field is owed to `idealloc`'s
+    // iterative nature as well as the requirement for
+    // high-performance squeezing: by keeping track of
+    // how many times a [PlacedJob] has been squeezed,
+    // we can quickly filter the interference graph during
+    // best-fit.
+    pub times_squeezed: u32,
+}
+
+// The INTERMEDIATE result of unboxing, that is, a first
+// loose placement, will be a min-heap on the jobs' offsets.
+impl Ord for PlacedJob {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.offset.cmp(&self.offset)
+    }
+}
+
+impl PartialOrd for PlacedJob {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for PlacedJob {
+    fn eq(&self, other: &Self) -> bool {
+        *self.descr == *other.descr
+    }
+}
+
+impl Eq for PlacedJob {}
+
+impl Hash for PlacedJob {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // A `PlacedJob` is hashed according to the
+        // underlying `Job` ID.
+        self.descr.hash(state);
+    }
+}
+
+// No `Arc` needed here, since we shall
+// work single-threadedly.
+type PlacedJobSet = Vec<Rc<PlacedJob>>;
+
+/// A map which holds, for each [PlacedJob], the subset of
+/// jobs which are temporally overlapping with it.
+pub type InterferenceGraph = HashMap<PlacedJob, PlacedJobSet>;
+
+/// A min-heap on the offsets of jobs, to be passed for squeezing.
+pub type LoosePlacement = BinaryHeap<Arc<PlacedJob>>;
+//---END PLACEMENT PRIMITIVES
