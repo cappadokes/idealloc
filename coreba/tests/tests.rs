@@ -41,6 +41,7 @@ fn run_tiny() {
     coreba::algo::main_loop(set, 1);
 }
 
+
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_toy() {

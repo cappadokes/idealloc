@@ -314,6 +314,7 @@ pub fn get_loose_placement(
     mut jobs:           JobSet,
     mut start_offset:   ByteSteps,
     control_state:      UnboxCtrl,
+    ig:                 &PlacedJobRegistry,
 ) -> LoosePlacement {
     let mut res = BinaryHeap::new();
     match control_state {
@@ -322,7 +323,7 @@ pub fn get_loose_placement(
             // The jobs in each row will be non-overlapping.
             jobs.sort_unstable();
             for row in interval_graph_coloring(jobs) {
-                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping));
+                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig));
                 start_offset += row_height;
             }
         },
@@ -331,11 +332,11 @@ pub fn get_loose_placement(
             // at the same offset.
             for j in jobs {
                 if j.is_original() {
-                    let mut to_put = PlacedJob::new(j);
-                    to_put.offset = start_offset;
-                    res.push(Arc::new(to_put));
+                    let to_put = ig.get(&j.id).unwrap().clone();
+                    to_put.offset.set(start_offset);
+                    res.push(to_put.clone());
                 } else {
-                    res.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown));
+                    res.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown, ig));
                 }
             }
         },
@@ -346,7 +347,7 @@ pub fn get_loose_placement(
             if jobs.iter()
                 .skip(1)
                 .all(|j| { j.size == size_probe }) {
-                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe)));
+                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe), ig));
             } else {
                 // Then check if they're non-overlapping. We can do that
                 // by demanding that the corresponding events are always
@@ -370,7 +371,7 @@ pub fn get_loose_placement(
                     }
                 }
                 if non_overlapping {
-                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping));
+                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping, ig));
                 } else {
                     // Here we know for a fact that the jobs are of multiple sizes, and they're also
                     // overlapping. One idea is to use "big rocks first". This can be combined with
@@ -388,7 +389,7 @@ pub fn get_loose_placement(
                             let igc_rows = interval_graph_coloring(size_class);
                             let num_rows = igc_rows.len();
                             for row in igc_rows {
-                                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping));
+                                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig));
                                 start_offset += row_height * num_rows;
                             }
                     }

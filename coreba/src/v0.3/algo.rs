@@ -56,10 +56,10 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
         println!("Boxing time: ({} iterations) {} μs ({:.2}% of interference)", iters_done + 1, boxing_end, boxing_end as f64 / graph_end as f64 * 100.0);
         let original_jobs_boxed = boxed.total_originals_boxed();
         debug_assert!(original_jobs_boxed == jobs_num_to_box, "Invalid boxing!");
-        let current_opt = boxed.place(&interference_graph);
+        let current_opt = boxed.place(&interference_graph, iters_done, best_opt);
+        assert!(current_opt == ByteSteps::MAX || current_opt >= input.load(), "Bad placement");
         if current_opt < best_opt {
             best_opt = current_opt;
-            input.update_offsets();
         }
         iters_done += 1;
         if iters_done < max_iters && best_opt > input.load() {
@@ -74,6 +74,8 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
         "Total allocation time: {} μs",
         total_start.elapsed().as_micros()
     );
+    println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", best_opt, input.load(), (best_opt - input.load()) as f64 / input.load() as f64 * 100.0);
+    unimplemented!()
 }
 
 /// Calls [rogue] for a variety of ε-values, returning the one
@@ -531,8 +533,9 @@ fn strip_cuttin(
 // the file hosting the rest of the impls.
 impl Instance {
     /// Records all jobs that are concurrently live with each job.
-    fn build_interference_graph(&self) -> InterferenceGraph {
+    fn build_interference_graph(&self) -> (InterferenceGraph, PlacedJobRegistry) {
         let mut res = HashMap::new();
+        let mut reg_res = HashMap::new();
         // We will use traversal. As we process events, we will be updating
         // a set of live jobs.
         let mut live: HashMap<u32, Rc<PlacedJob>> = HashMap::new();
@@ -546,14 +549,15 @@ impl Instance {
                         .collect();
                     let new_entry = Rc::new(PlacedJob::new(e.job.clone()));
                     // First, add a new entry, initialized to the currently live jobs.
-                    assert!(res.insert(new_entry.clone(), init_vec).is_none());
+                    res.insert(new_entry.clone(), init_vec);
+                    reg_res.insert(e.job.id, new_entry.clone());
                     for (_, j) in &live {
                         // Update currently live jobs' vectors with the new entry.
                         let vec_handle = res.get_mut(j).unwrap();
                         vec_handle.push(new_entry.clone());
                     }
                     // Add new entry to currently live jobs.
-                    assert!(live.insert(e.job.id, new_entry).is_none());
+                    live.insert(e.job.id, new_entry);
                 },
                 EventKind::Death    => {
                     // Remove job from currently live.
@@ -562,19 +566,87 @@ impl Instance {
             }
         }
 
-        res
+        (res, reg_res)
     }
 
     // Unbox and tighten. Probably needs to be
     // implemented for another type or YIELD
     // another type.
-    fn place(self, _ig: &InterferenceGraph) -> ByteSteps {
+    fn place(
+        self, 
+        ig:             &(InterferenceGraph, PlacedJobRegistry), 
+        iters_done:     u32,
+        makespan_lim:   ByteSteps,
+    ) -> ByteSteps {
+        let mut max_address = 0;
         // Measure unboxing time.
         let loose_start = Instant::now();
         let row_size = self.jobs[0].size;
-        let _loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size));
+        let mut loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size), &ig.1);
         println!("Unboxing time: {} μs", loose_start.elapsed().as_micros());
-        unimplemented!()
+        let squeeze_start = Instant::now();
+        // Traverse loosely placed jobs in ascending offset.
+        while let Some(to_squeeze) = loose.pop() {
+            let min_gap_size = to_squeeze.descr.size;
+            let mut offset_runner = 0;
+            let mut smallest_gap = ByteSteps::MAX;
+            let mut best_offset: Option<ByteSteps> = None;
+            // Traverse already-squeezed jobs that overlap with
+            // the current one in ascending offset. You're looking
+            // for the smallest gap which fits the job, alignment
+            // requirements included.
+            let mut jobs_vec = ig.0.get(&to_squeeze)
+                .unwrap()
+                .iter()
+                .filter(|j| { j.times_squeezed.get() == iters_done + 1 })
+                .sorted_unstable()
+                .rev()
+                .peekable();
+
+            while let Some(next_job) = jobs_vec.peek() {
+                let njo = next_job.offset.get();
+                if njo > offset_runner {
+                    let test_addr = if let Some(a) = to_squeeze.descr.alignment {
+                        if offset_runner < a {
+                            a
+                        } else if offset_runner % a != 0 {
+                            (offset_runner / a + 1) * a
+                        } else {
+                            offset_runner
+                        }
+                    } else {
+                        offset_runner
+                    };
+                    if njo > test_addr && njo - test_addr >= min_gap_size {
+                        let gap = njo - test_addr;
+                        if gap < smallest_gap {
+                            smallest_gap = gap;
+                            best_offset = Some(test_addr);
+                        }
+                    }
+                    offset_runner = test_addr.max(next_job.next_avail_addr());
+                } else {
+                    offset_runner = offset_runner.max(next_job.next_avail_addr());
+                }
+                jobs_vec.next();
+            }
+            if let Some(o) = best_offset {
+                to_squeeze.offset.set(o);
+            } else { to_squeeze.offset.set(offset_runner); }
+            to_squeeze.times_squeezed.set(iters_done + 1);
+            let cand_makespan = to_squeeze.next_avail_addr();
+            if cand_makespan > max_address {
+                max_address = cand_makespan;
+                if max_address > makespan_lim {
+                    println!("Early stopped squeezing!");
+                    println!("Squeezing time: {} μs", squeeze_start.elapsed().as_micros());
+                    return ByteSteps::MAX;
+                }
+            }
+        };
+        println!("Squeezing time: {} μs", squeeze_start.elapsed().as_micros());
+
+        max_address
     }
 
     /// Splits instance to unit-height buckets, in the

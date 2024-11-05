@@ -41,7 +41,7 @@ pub struct Job {
     pub birth:          ByteSteps,
     pub death:          ByteSteps,
     req_size:           ByteSteps,
-    alignment:          Option<u16>,
+    alignment:          Option<ByteSteps>,
     /// They user may not care, but `idealloc`'s core operation is boxing
     /// jobs together recursively. A very common interface is (i) consuming
     /// a set of jobs and (ii) producing a *new* set, its elements containing
