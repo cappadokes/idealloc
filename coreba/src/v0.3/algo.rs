@@ -41,6 +41,10 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
     }
     let final_h = h_max as f64 / mu;
 
+    // Last but not least, we'll need an interference graph
+    // for fast placement.
+    let _interference_graph = input.build_interference_graph();
+
     loop {
         boxed = c_15(boxed, final_h, mu);
         let final_boxed = boxed.total_originals_boxed();
@@ -443,7 +447,6 @@ fn strip_boxin(
 ) -> JobSet {
     let mut res_set = strip_box_core(verticals, group_size, box_size, true);
     res_set.append(&mut strip_box_core(horizontals, group_size, box_size, false));
-    //res_set.sort_unstable();
 
     res_set
 }
@@ -525,6 +528,41 @@ fn strip_cuttin(
 // parts of the algorithm, so they're put here instead of
 // the file hosting the rest of the impls.
 impl Instance {
+    /// Records all jobs that are concurrently live with each job.
+    fn build_interference_graph(&self) -> InterferenceGraph {
+        let mut res = HashMap::new();
+        // We will use traversal. As we process events, we will be updating
+        // a set of live jobs.
+        let mut live: HashMap<u32, Rc<PlacedJob>> = HashMap::new();
+        let mut evts = get_events(&self.jobs);
+
+        while let Some(e) = evts.pop() {
+            match e.evt_t {
+                EventKind::Birth    => {
+                    let init_vec: PlacedJobSet = live.values()
+                        .cloned()
+                        .collect();
+                    let new_entry = Rc::new(PlacedJob::new(e.job.clone()));
+                    // First, add a new entry, initialized to the currently live jobs.
+                    assert!(res.insert(new_entry.clone(), init_vec).is_none());
+                    for (_, j) in &live {
+                        // Update currently live jobs' vectors with the new entry.
+                        let vec_handle = res.get_mut(j).unwrap();
+                        vec_handle.push(new_entry.clone());
+                    }
+                    // Add new entry to currently live jobs.
+                    assert!(live.insert(e.job.id, new_entry).is_none());
+                },
+                EventKind::Death    => {
+                    // Remove job from currently live.
+                    live.remove(&e.job.id);
+                },
+            }
+        }
+
+        res
+    }
+
     // Unbox and tighten. Probably needs to be
     // implemented for another type or YIELD
     // another type.
