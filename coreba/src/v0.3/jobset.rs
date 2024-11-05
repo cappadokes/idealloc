@@ -217,6 +217,12 @@ pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
         }
     };
 
+    /*
+        Doing away with this, as it both hurts boxing time
+        and doesn't make sense intuitively.
+
+        TODO: remove the comment in the future, when 100% sure.
+
     // Put longest rows to the bottom.
     res.sort_unstable_by(|a, b| {
         b.iter()
@@ -225,6 +231,7 @@ pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
                     .fold(0, |acc_life, j| { acc_life + j.lifetime()})
             )
     });
+    */
 
     res
 }
@@ -298,6 +305,74 @@ pub fn get_events(jobs: &JobSet) -> Events {
             evt_t:  EventKind::Death,
             time:   j.death,
         });
+    };
+
+    res
+}
+
+pub fn get_loose_placement(
+    mut jobs:           JobSet,
+    mut start_offset:   ByteSteps,
+    control_state:      UnboxCtrl,
+) -> LoosePlacement {
+    let mut res = BinaryHeap::new();
+    match control_state {
+        UnboxCtrl::SameSizes(row_height)    => {
+            jobs.sort_unstable();
+            for row in interval_graph_coloring(jobs) {
+                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping));
+                start_offset += row_height;
+            }
+        },
+        UnboxCtrl::NonOverlapping   => {
+            let thread_safe_res: Arc<Mutex<LoosePlacement>> = Arc::new(Mutex::new(BinaryHeap::new()));
+            jobs.into_par_iter().for_each(|j| {
+                // First, unwrap job. There shouldn't be any other
+                // references to it.
+                //let j = Arc::into_inner(j).unwrap();
+                if j.is_original() {
+                    let mut to_put = PlacedJob::new(j);
+                    to_put.offset = start_offset;
+                    let mut guard = thread_safe_res.lock().unwrap();
+                    guard.push(Arc::new(to_put));
+                } else {
+                    let mut guard = thread_safe_res.lock().unwrap();
+                    guard.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown));
+                }
+            });
+        },
+        UnboxCtrl::Unknown  => {
+            let size_probe = jobs[0].size;
+            if jobs.iter()
+                .skip(1)
+                .all(|j| { j.size == size_probe }) {
+                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe)));
+            } else {
+                jobs.sort_unstable();
+                let mut evts = get_events(&jobs);
+                let mut last_was_birth = false;
+                let mut non_overlapping = true;
+                while let Some(e) = evts.pop() {
+                    match e.evt_t {
+                        EventKind::Birth    => {
+                            if last_was_birth {
+                                non_overlapping = false;
+                                break;
+                            }
+                            last_was_birth = true;
+                        },
+                        EventKind::Death    => {
+                            last_was_birth = false;
+                        }
+                    }
+                }
+                if non_overlapping {
+                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping));
+                } else {
+                    unimplemented!();
+                }
+            }
+        }
     };
 
     res

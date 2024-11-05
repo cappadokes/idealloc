@@ -4,8 +4,6 @@ use crate::utils::*;
 /// number of times. At the end the jobs in `input` have
 /// received placement offsets.
 pub fn main_loop(input: JobSet, max_iters: u32) {
-    use std::time::Instant;
-
     // Measure total allocation time.
     let total_start = Instant::now();
 
@@ -26,7 +24,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 
     // Calling `rogue` is not always safe!
     let mut rogue_safe = true;
-    let (epsilon, mut boxed) = if small_end < big_end {
+    let (epsilon, mut pre_boxed) = if small_end < big_end {
         init_rogue(input.clone(), small_end, big_end)
     } else {
         rogue_safe = false;
@@ -35,7 +33,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 
     // Initializations related to the last
     // invocation of C15.
-    let (_, mut mu, _, _) = boxed.get_safety_info(epsilon);
+    let (_, mut mu, _, _) = pre_boxed.get_safety_info(epsilon);
     if mu > mu_lim {
         mu = 0.99 * mu_lim;
     }
@@ -43,13 +41,18 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
 
     // Last but not least, we'll need an interference graph
     // for fast placement.
-    let _interference_graph = input.build_interference_graph();
+    let graph_start = Instant::now();
+    let interference_graph = input.build_interference_graph();
+    println!(
+        "Interference graph build: {} μs",
+        graph_start.elapsed().as_micros()
+    );
 
     loop {
-        boxed = c_15(boxed, final_h, mu);
-        let final_boxed = boxed.total_originals_boxed();
-        debug_assert!(final_boxed == jobs_num_to_box, "Invalid boxing!");
-        let current_opt = boxed.place();
+        let boxed = c_15(pre_boxed.clone(), final_h, mu);
+        let original_jobs_boxed = boxed.total_originals_boxed();
+        debug_assert!(original_jobs_boxed == jobs_num_to_box, "Invalid boxing!");
+        let current_opt = boxed.place(&interference_graph);
         if current_opt < best_opt {
             best_opt = current_opt;
             input.update_offsets();
@@ -57,7 +60,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
         iters_done += 1;
         if iters_done < max_iters && best_opt > input.load() {
             if rogue_safe {
-                boxed = rogue(input.clone(), epsilon);
+                pre_boxed = rogue(input.clone(), epsilon);
             }
         } else { break; }
     };
@@ -122,9 +125,6 @@ fn c_15(
     // are at most ε*h. Boxes returned are size h, that is, BIGGER
     // than their contents. ε must thus be < 1.
     assert!(epsilon < 1.0, "ε >= 1.0 @ C15!");
-
-    use rayon::prelude::*;
-    use std::sync::Mutex;
 
     // Each bucket can be treated independently.
     // Embarassingly parallel operation. Consolidate
@@ -277,9 +277,6 @@ fn t_2(
         jobs_buf.sort_unstable();
         res_jobs.push(Arc::new(Job::new_box(jobs_buf, h_real)));
     }
-
-    use rayon::prelude::*;
-    use std::sync::Mutex;
 
     // T2 is going to be called for all X_is in parallel.
     let res = Arc::new(Mutex::new(Instance::new(res_jobs)));
@@ -566,7 +563,12 @@ impl Instance {
     // Unbox and tighten. Probably needs to be
     // implemented for another type or YIELD
     // another type.
-    fn place(&self) -> ByteSteps {
+    fn place(self, _ig: &InterferenceGraph) -> ByteSteps {
+        // Measure unboxing time.
+        let loose_start = Instant::now();
+        let row_size = self.jobs[0].size;
+        let _loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size));
+        println!("Unboxing time: {} μs", loose_start.elapsed().as_micros());
         unimplemented!()
     }
 

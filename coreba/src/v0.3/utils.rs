@@ -1,6 +1,6 @@
 pub use std::{
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Mutex},
     io::{BufRead, BufReader},
     collections::{HashMap, BinaryHeap, BTreeSet, HashSet},
     path::PathBuf,
@@ -8,9 +8,11 @@ pub use std::{
     hash::Hash,
     backtrace::Backtrace,
     cell::Cell,
+    time::Instant,
 };
 pub use thiserror::Error;
 pub use itertools::Itertools;
+pub use rayon::prelude::*;
 
 pub use crate::{Instance, Job,
     jobset::*,
@@ -138,22 +140,22 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
 /// some contiguous address space.
 pub struct PlacedJob {
     pub descr:          Arc<Job>,
-    pub offset:         Cell<ByteSteps>,
+    pub offset:         ByteSteps,
     // The `times_placed` field is owed to `idealloc`'s
     // iterative nature as well as the requirement for
     // high-performance squeezing: by keeping track of
     // how many times a [PlacedJob] has been squeezed,
     // we can quickly filter the interference graph during
     // best-fit.
-    pub times_squeezed: Cell<u32>,
+    pub times_squeezed: u32,
 }
 
 impl PlacedJob {
     pub fn new(descr: Arc<Job>) -> Self {
         Self {
             descr,
-            offset:         Cell::new(0),
-            times_squeezed: Cell::new(0),
+            offset:         0,
+            times_squeezed: 0,
         }
     }
 }
@@ -198,4 +200,10 @@ pub type InterferenceGraph = HashMap<Rc<PlacedJob>, PlacedJobSet>;
 
 /// A min-heap on the offsets of jobs, to be passed for squeezing.
 pub type LoosePlacement = BinaryHeap<Arc<PlacedJob>>;
+
+pub enum UnboxCtrl {
+    SameSizes(ByteSteps),
+    NonOverlapping,
+    Unknown,
+}
 //---END PLACEMENT PRIMITIVES
