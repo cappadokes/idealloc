@@ -20,7 +20,6 @@ fn read_from_path(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> {
 // functionality is correct.
 //
 // To be replaced in the future with one big test.
-/*
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_pangu() {
@@ -35,7 +34,6 @@ fn run_nezha() {
     coreba::algo::main_loop(set, 1);
 }
 
-*/
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_tiny() {

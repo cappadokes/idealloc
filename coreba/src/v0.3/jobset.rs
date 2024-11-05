@@ -318,6 +318,8 @@ pub fn get_loose_placement(
     let mut res = BinaryHeap::new();
     match control_state {
         UnboxCtrl::SameSizes(row_height)    => {
+            // If jobs are same-sized, do IGC!
+            // The jobs in each row will be non-overlapping.
             jobs.sort_unstable();
             for row in interval_graph_coloring(jobs) {
                 res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping));
@@ -325,29 +327,30 @@ pub fn get_loose_placement(
             }
         },
         UnboxCtrl::NonOverlapping   => {
-            let thread_safe_res: Arc<Mutex<LoosePlacement>> = Arc::new(Mutex::new(BinaryHeap::new()));
-            jobs.into_par_iter().for_each(|j| {
-                // First, unwrap job. There shouldn't be any other
-                // references to it.
-                //let j = Arc::into_inner(j).unwrap();
+            // If jobs are non-overlapping, they can all be put
+            // at the same offset.
+            for j in jobs {
                 if j.is_original() {
                     let mut to_put = PlacedJob::new(j);
                     to_put.offset = start_offset;
-                    let mut guard = thread_safe_res.lock().unwrap();
-                    guard.push(Arc::new(to_put));
+                    res.push(Arc::new(to_put));
                 } else {
-                    let mut guard = thread_safe_res.lock().unwrap();
-                    guard.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown));
+                    res.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown));
                 }
-            });
+            }
         },
         UnboxCtrl::Unknown  => {
+            // We must find out on our own the jobs' characteristics.
+            // First check if they're all of the same size.
             let size_probe = jobs[0].size;
             if jobs.iter()
                 .skip(1)
                 .all(|j| { j.size == size_probe }) {
                     res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe)));
             } else {
+                // Then check if they're non-overlapping. We can do that
+                // by demanding that the corresponding events are always
+                // alternating between births and deaths.
                 jobs.sort_unstable();
                 let mut evts = get_events(&jobs);
                 let mut last_was_birth = false;
@@ -369,7 +372,26 @@ pub fn get_loose_placement(
                 if non_overlapping {
                     res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping));
                 } else {
-                    unimplemented!();
+                    // Here we know for a fact that the jobs are of multiple sizes, and they're also
+                    // overlapping. One idea is to use "big rocks first". This can be combined with
+                    // clustering (maybe more than one jobs are of the same size and can thus be
+                    // put in the same cluster).
+                    let mut size_buckets: HashMap<ByteSteps, JobSet> = HashMap::new();
+                    for j in jobs {
+                        size_buckets.entry(j.size)
+                            .and_modify(|e| e.push(j.clone()))
+                            .or_insert(vec![j]);
+                    }
+                    for (row_height, mut size_class) in size_buckets.into_iter()
+                        .sorted_unstable_by(|a, b| { b.0.cmp(&a.0)}) {
+                            size_class.sort_unstable();
+                            let igc_rows = interval_graph_coloring(size_class);
+                            let num_rows = igc_rows.len();
+                            for row in igc_rows {
+                                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping));
+                                start_offset += row_height * num_rows;
+                            }
+                    }
                 }
             }
         }

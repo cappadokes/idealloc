@@ -22,8 +22,19 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
     let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
     let big_end = mu_lim * lg2r;
 
+    // Last but not least, we'll need an interference graph
+    // for fast placement.
+    let graph_start = Instant::now();
+    let interference_graph = input.build_interference_graph();
+    let graph_end = graph_start.elapsed().as_micros();
+    println!(
+        "Interference graph build: {} μs",
+        graph_end
+    );
+
     // Calling `rogue` is not always safe!
     let mut rogue_safe = true;
+    let mut boxing_start = Instant::now();
     let (epsilon, mut pre_boxed) = if small_end < big_end {
         init_rogue(input.clone(), small_end, big_end)
     } else {
@@ -39,17 +50,10 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
     }
     let final_h = h_max as f64 / mu;
 
-    // Last but not least, we'll need an interference graph
-    // for fast placement.
-    let graph_start = Instant::now();
-    let interference_graph = input.build_interference_graph();
-    println!(
-        "Interference graph build: {} μs",
-        graph_start.elapsed().as_micros()
-    );
-
     loop {
         let boxed = c_15(pre_boxed.clone(), final_h, mu);
+        let boxing_end = boxing_start.elapsed().as_micros();
+        println!("Boxing time: ({} iterations) {} μs ({:.2}% of interference)", iters_done + 1, boxing_end, boxing_end as f64 / graph_end as f64 * 100.0);
         let original_jobs_boxed = boxed.total_originals_boxed();
         debug_assert!(original_jobs_boxed == jobs_num_to_box, "Invalid boxing!");
         let current_opt = boxed.place(&interference_graph);
@@ -59,6 +63,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
         }
         iters_done += 1;
         if iters_done < max_iters && best_opt > input.load() {
+            boxing_start = Instant::now();
             if rogue_safe {
                 pre_boxed = rogue(input.clone(), epsilon);
             }
