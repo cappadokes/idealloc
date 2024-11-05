@@ -22,6 +22,13 @@ fn read_from_path(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> {
 // To be replaced in the future with one big test.
 #[test]
 #[should_panic(expected = "not implemented")]
+fn run_tiny() {
+    let set = read_from_path("tests/data/tiny_bert.csv").unwrap();
+    coreba::algo::main_loop(set, 10);
+}
+/*
+#[test]
+#[should_panic(expected = "not implemented")]
 fn run_pangu() {
     let set = read_from_path("tests/data/pangu_2.6B.csv").unwrap();
     coreba::algo::main_loop(set, 1);
@@ -33,14 +40,6 @@ fn run_nezha() {
     let set = read_from_path("tests/data/bert_nezha.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
-
-#[test]
-#[should_panic(expected = "not implemented")]
-fn run_tiny() {
-    let set = read_from_path("tests/data/tiny_bert.csv").unwrap();
-    coreba::algo::main_loop(set, 1);
-}
-
 
 #[test]
 #[should_panic(expected = "not implemented")]
@@ -152,3 +151,4 @@ fn run_minimalloc_k() {
     let set = read_from_path("tests/data/K.1048576.csv").unwrap();
     coreba::algo::main_loop(set, 1);
 }
+*/

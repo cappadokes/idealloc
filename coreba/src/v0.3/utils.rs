@@ -200,7 +200,7 @@ pub type PlacedJobSet = Vec<Rc<PlacedJob>>;
 
 /// A map which holds, for each [PlacedJob], the subset of
 /// jobs which are temporally overlapping with it.
-pub type InterferenceGraph = HashMap<Rc<PlacedJob>, PlacedJobSet>;
+pub type InterferenceGraph = HashMap<u32, PlacedJobSet>;
 pub type PlacedJobRegistry = HashMap<u32, Rc<PlacedJob>>;
 
 /// A min-heap on the offsets of jobs, to be passed for squeezing.

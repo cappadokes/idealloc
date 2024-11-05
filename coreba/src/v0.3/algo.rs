@@ -59,6 +59,7 @@ pub fn main_loop(input: JobSet, max_iters: u32) {
         let current_opt = boxed.place(&interference_graph, iters_done, best_opt);
         assert!(current_opt == ByteSteps::MAX || current_opt >= input.load(), "Bad placement");
         if current_opt < best_opt {
+            println!("NEW RECORD!");
             best_opt = current_opt;
         }
         iters_done += 1;
@@ -549,11 +550,11 @@ impl Instance {
                         .collect();
                     let new_entry = Rc::new(PlacedJob::new(e.job.clone()));
                     // First, add a new entry, initialized to the currently live jobs.
-                    res.insert(new_entry.clone(), init_vec);
+                    res.insert(e.job.id, init_vec);
                     reg_res.insert(e.job.id, new_entry.clone());
                     for (_, j) in &live {
                         // Update currently live jobs' vectors with the new entry.
-                        let vec_handle = res.get_mut(j).unwrap();
+                        let vec_handle = res.get_mut(&j.descr.id).unwrap();
                         vec_handle.push(new_entry.clone());
                     }
                     // Add new entry to currently live jobs.
@@ -595,7 +596,7 @@ impl Instance {
             // the current one in ascending offset. You're looking
             // for the smallest gap which fits the job, alignment
             // requirements included.
-            let mut jobs_vec = ig.0.get(&to_squeeze)
+            let mut jobs_vec = ig.0.get(&to_squeeze.descr.id)
                 .unwrap()
                 .iter()
                 .filter(|j| { j.times_squeezed.get() == iters_done + 1 })
