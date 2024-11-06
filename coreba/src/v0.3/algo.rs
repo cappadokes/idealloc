@@ -579,75 +579,12 @@ impl Instance {
         iters_done:     u32,
         makespan_lim:   ByteSteps,
     ) -> ByteSteps {
-        let mut max_address = 0;
         // Measure unboxing time.
         let loose_start = Instant::now();
         let row_size = self.jobs[0].size;
-        let mut loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size), &ig.1);
+        let loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size), &ig.1);
         println!("Unboxing time: {} μs", loose_start.elapsed().as_micros());
-        let squeeze_start = Instant::now();
-        // Traverse loosely placed jobs in ascending offset.
-        while let Some(to_squeeze) = loose.pop() {
-            let min_gap_size = to_squeeze.descr.size;
-            let mut offset_runner = 0;
-            let mut smallest_gap = ByteSteps::MAX;
-            let mut best_offset: Option<ByteSteps> = None;
-            // Traverse already-squeezed jobs that overlap with
-            // the current one in ascending offset. You're looking
-            // for the smallest gap which fits the job, alignment
-            // requirements included.
-            let mut jobs_vec = ig.0.get(&to_squeeze.descr.id)
-                .unwrap()
-                .iter()
-                .filter(|j| { j.times_squeezed.get() == iters_done + 1 })
-                .sorted_unstable()
-                .rev()
-                .peekable();
-
-            while let Some(next_job) = jobs_vec.peek() {
-                let njo = next_job.offset.get();
-                if njo > offset_runner {
-                    let test_addr = if let Some(a) = to_squeeze.descr.alignment {
-                        if offset_runner < a {
-                            a
-                        } else if offset_runner % a != 0 {
-                            (offset_runner / a + 1) * a
-                        } else {
-                            offset_runner
-                        }
-                    } else {
-                        offset_runner
-                    };
-                    if njo > test_addr && njo - test_addr >= min_gap_size {
-                        let gap = njo - test_addr;
-                        if gap < smallest_gap {
-                            smallest_gap = gap;
-                            best_offset = Some(test_addr);
-                        }
-                    }
-                    offset_runner = test_addr.max(next_job.next_avail_addr());
-                } else {
-                    offset_runner = offset_runner.max(next_job.next_avail_addr());
-                }
-                jobs_vec.next();
-            }
-            if let Some(o) = best_offset {
-                to_squeeze.offset.set(o);
-            } else { to_squeeze.offset.set(offset_runner); }
-            to_squeeze.times_squeezed.set(iters_done + 1);
-            let cand_makespan = to_squeeze.next_avail_addr();
-            if cand_makespan > max_address {
-                max_address = cand_makespan;
-                if max_address > makespan_lim {
-                    println!("Early stopped squeezing!");
-                    println!("Squeezing time: {} μs", squeeze_start.elapsed().as_micros());
-                    return ByteSteps::MAX;
-                }
-            }
-        };
-        println!("Squeezing time: {} μs", squeeze_start.elapsed().as_micros());
-
-        max_address
+        do_best_fit(loose, &ig.0, iters_done, makespan_lim)
     }
 
     /// Splits instance to unit-height buckets, in the
@@ -677,4 +614,81 @@ impl Instance {
 
         res
     }
+}
+
+/// Performs best-fit placement of an already-ordered collection
+/// of jobs (by some symbolic offset). Returns the resulting makespan.
+/// 
+/// Stops early if the running makespan exceeds a pre-defined limit.
+/// Prints the total time of the operation.
+fn do_best_fit(
+    mut loose:      LoosePlacement,
+    ig:             &InterferenceGraph,
+    iters_done:     u32,
+    makespan_lim:   ByteSteps,
+) -> ByteSteps {
+    let squeeze_start = Instant::now();
+    let mut max_address = 0;
+    // Traverse loosely placed jobs in ascending offset.
+    while let Some(to_squeeze) = loose.pop() {
+        let min_gap_size = to_squeeze.descr.size;
+        let mut offset_runner = 0;
+        let mut smallest_gap = ByteSteps::MAX;
+        let mut best_offset: Option<ByteSteps> = None;
+        // Traverse already-squeezed jobs that overlap with
+        // the current one in ascending offset. You're looking
+        // for the smallest gap which fits the job, alignment
+        // requirements included.
+        let mut jobs_vec = ig.get(&to_squeeze.descr.id)
+            .unwrap()
+            .iter()
+            .filter(|j| { j.times_squeezed.get() == iters_done + 1 })
+            .sorted_unstable()
+            .rev()
+            .peekable();
+
+        while let Some(next_job) = jobs_vec.peek() {
+            let njo = next_job.offset.get();
+            if njo > offset_runner {
+                let test_addr = if let Some(a) = to_squeeze.descr.alignment {
+                    if offset_runner < a {
+                        a
+                    } else if offset_runner % a != 0 {
+                        (offset_runner / a + 1) * a
+                    } else {
+                        offset_runner
+                    }
+                } else {
+                    offset_runner
+                };
+                if njo > test_addr && njo - test_addr >= min_gap_size {
+                    let gap = njo - test_addr;
+                    if gap < smallest_gap {
+                        smallest_gap = gap;
+                        best_offset = Some(test_addr);
+                    }
+                }
+                offset_runner = test_addr.max(next_job.next_avail_addr());
+            } else {
+                offset_runner = offset_runner.max(next_job.next_avail_addr());
+            }
+            jobs_vec.next();
+        }
+        if let Some(o) = best_offset {
+            to_squeeze.offset.set(o);
+        } else { to_squeeze.offset.set(offset_runner); }
+        to_squeeze.times_squeezed.set(iters_done + 1);
+        let cand_makespan = to_squeeze.next_avail_addr();
+        if cand_makespan > max_address {
+            max_address = cand_makespan;
+            if max_address > makespan_lim {
+                println!("Early stopped squeezing!");
+                println!("Squeezing time: {} μs", squeeze_start.elapsed().as_micros());
+                return ByteSteps::MAX;
+            }
+        }
+    };
+    println!("Squeezing time: {} μs", squeeze_start.elapsed().as_micros());
+
+    max_address
 }
