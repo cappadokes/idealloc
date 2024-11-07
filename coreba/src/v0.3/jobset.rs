@@ -6,7 +6,7 @@ use crate::utils::*;
 /// - no job has zero size
 /// - all current sizes are in agreement with the "allocated" ones
 /// - all deaths are bigger than all births
-/// - all lifetimes have a length of at least 2 units
+/// - all lifetimes have a length of at least 1 unit
 /// - all jobs are original
 /// - no job has zero alignment
 /// - allocated job size is equal or greater to the requested one
@@ -30,9 +30,9 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
                 message: String::from("Job with birth >= death found!"),
                 culprit: in_elts.remove(idx),
             });
-        } else if (j.death - j.birth) < 2 {
+        } else if j.lifetime() < 1 {
             return Err(JobError {
-                message: String::from("Job with lifetime < 2 found!"),
+                message: String::from("Job with lifetime < 1 found!"),
                 culprit: in_elts.remove(idx),
             });
         } else if let Some(a) = j.alignment {
@@ -315,6 +315,7 @@ pub fn get_loose_placement(
     mut start_offset:   ByteSteps,
     control_state:      UnboxCtrl,
     ig:                 &PlacedJobRegistry,
+    dumb_id:            u32,
 ) -> LoosePlacement {
     let mut res = BinaryHeap::new();
     match control_state {
@@ -323,7 +324,7 @@ pub fn get_loose_placement(
             // The jobs in each row will be non-overlapping.
             jobs.sort_unstable();
             for row in interval_graph_coloring(jobs) {
-                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig));
+                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
                 start_offset += row_height;
             }
         },
@@ -332,11 +333,13 @@ pub fn get_loose_placement(
             // at the same offset.
             for j in jobs {
                 if j.is_original() {
-                    let to_put = ig.get(&j.id).unwrap().clone();
-                    to_put.offset.set(start_offset);
-                    res.push(to_put.clone());
+                    if j.id != dumb_id {
+                        let to_put = ig.get(&j.id).unwrap().clone();
+                        to_put.offset.set(start_offset);
+                        res.push(to_put.clone());
+                    }
                 } else {
-                    res.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown, ig));
+                    res.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown, ig, dumb_id));
                 }
             }
         },
@@ -347,7 +350,7 @@ pub fn get_loose_placement(
             if jobs.iter()
                 .skip(1)
                 .all(|j| { j.size == size_probe }) {
-                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe), ig));
+                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe), ig, dumb_id));
             } else {
                 // Then check if they're non-overlapping. We can do that
                 // by demanding that the corresponding events are always
@@ -371,7 +374,7 @@ pub fn get_loose_placement(
                     }
                 }
                 if non_overlapping {
-                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping, ig));
+                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
                 } else {
                     // Here we know for a fact that the jobs are of multiple sizes, and they're also
                     // overlapping. One idea is to use "big rocks first". This can be combined with
@@ -389,7 +392,7 @@ pub fn get_loose_placement(
                             let igc_rows = interval_graph_coloring(size_class);
                             let num_rows = igc_rows.len();
                             for row in igc_rows {
-                                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig));
+                                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
                                 start_offset += row_height * num_rows;
                             }
                     }

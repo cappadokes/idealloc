@@ -5,7 +5,7 @@ impl Job {
     /// the jobs in `contents`.
     /// 
     /// The new job's contents are sorted by the "big rocks first"
-    /// heuristic--that is, by area (lifetime * size).
+    /// heuristic--that is, by size.
     pub fn new_box(
         mut contents:   JobSet,
         height:         ByteSteps,
@@ -18,9 +18,10 @@ impl Job {
         assert!(get_load(&contents) <= height, "Bad boxing requested");
 
         contents.sort_unstable_by(|a, b| {
-            (b.lifetime() * b.size).cmp(
-                &(a.lifetime() * a.size)
-            )
+            //(b.area()).cmp(
+            //    &(a.area())
+            //)
+            b.size.cmp(&a.size)
         });
 
         let mut birth = ByteSteps::MAX;
@@ -105,12 +106,16 @@ impl Job {
     /// in which the [Job] is live.
     ///
     /// Given the fact that we consider *open* intervals, a job's
-    /// lifetime must be AT LEAST 2, else there is no point in time
+    /// lifetime must be AT LEAST 1, else there is no point in time
     /// in which it is considered live.
     ///
     /// This function assumes that the lifetime is legit.
     pub fn lifetime(&self) -> ByteSteps {
-        self.death - self.birth
+        self.death - self.birth - 1
+    }
+
+    pub fn area(&self) -> ByteSteps {
+        self.size * self.lifetime()
     }
 }
 
