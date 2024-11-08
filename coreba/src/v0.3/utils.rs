@@ -16,6 +16,7 @@ pub use rayon::prelude::*;
 
 pub use crate::{Instance, Job,
     jobset::*,
+    algo::do_best_fit,
 };
 
 /// The unit for measuring logical time. `idealloc` does not care about

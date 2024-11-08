@@ -37,6 +37,10 @@ impl Instance {
         }
     }
 
+    pub fn check_boxed_originals(&self, target: u32) -> bool {
+        target == self.total_originals_boxed()
+    }
+
     /// Checks an [Instance] a candidate ε-value and returns:
     ///     (i)     its max/min height ratio, `r`
     ///     (ii)    the implied `μ` = ε / (log`r`)^2
@@ -44,14 +48,12 @@ impl Instance {
     ///     (iv)    whether it's safe to mimic Theorem 16
     pub fn get_safety_info(&mut self, epsilon: f64) -> (f64, f64, f64, bool) {
         let (h_min, h_max) = self.min_max_height();
-        let r = h_max as f64 / h_min as f64;
-        let lg2r = r.log2().powi(2);
+        let (x_1, _, _, lg2r) = self.ctrl_prelude();
         let mu = epsilon / lg2r;
         let h = (mu.powi(5) * (h_max as f64) / lg2r).ceil();
         let target_size = (mu * h).floor();
-        let x_1 = (5.0_f64.sqrt() - 1.0) / 2.0;
 
-        (r, mu, h, mu < x_1 && target_size >= h_min as f64)
+        (h_max as f64 / h_min as f64, mu, h, mu < x_1 && target_size >= h_min as f64)
     }
 
     /// Returns (smallest birth, largest death).
@@ -71,11 +73,6 @@ impl Instance {
         )
     }
 
-    /// Calculates the makespan.
-    pub fn opt(&self) -> ByteSteps {
-        unimplemented!()
-    }
-
     /// Calculates the optimal makespan,
     /// that is, the max load of an instance.
     pub fn load(&mut self) -> ByteSteps {
@@ -91,13 +88,6 @@ impl Instance {
                 v
             }
         }
-    }
-
-    /// Runs in case a better solution has been found and
-    /// updates input job offsets accordingly.
-    pub fn update_offsets(&self) {
-        unimplemented!()
-        //self.jobs.iter().for_each(|j| j.upd_off());
     }
 
     /// Returns the minimum and maximum TRUE height over the
@@ -261,5 +251,16 @@ impl Instance {
         self.info = Info::merge(self, &mut other);
 
         assert!(self.jobs.len() == to_join);
+    }
+
+    pub fn ctrl_prelude(&mut self) -> (f64, f64, f64, f64) {
+        let (h_min, h_max) = self.min_max_height();
+        let r = h_max as f64 / h_min as f64;
+        let lgr = r.log2();
+        let lg2r = lgr.powi(2);
+        let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
+        let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
+
+        (mu_lim, small_end, mu_lim * lg2r, lg2r)
     }
 }

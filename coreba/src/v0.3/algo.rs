@@ -9,60 +9,41 @@ pub fn main_loop(mut original_input: JobSet, max_iters: u32) {
 
     // Initializations...
     let mut input = Instance::new(original_input.clone());
+    let (h_min, mut h_max) = input.min_max_height();
     let mut iters_done = 0;
     let mut best_opt = ByteSteps::MAX;
     let mut jobs_num_to_box = input.jobs.len() as u32;
 
     // The first thing to do is stabilize ε.
-    let (h_min, h_max) = input.min_max_height();
-    let r = h_max as f64 / h_min as f64;
-    let lgr = r.log2();
-    let lg2r = lgr.powi(2);
-    let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
-    let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
-    let big_end = mu_lim * lg2r;
+    let (mu_lim, small_end, big_end, _lg2r) = input.ctrl_prelude();
 
     let mut dummy_job = None;
     let (epsilon, mut pre_boxed) = if small_end < big_end {
         init_rogue(input.clone(), small_end, big_end)
     } else {
-        // TODO: It all started when I realized that my method is often
-        // inferior to the simplest of heuristics (size-ordered best fit).
-        //
-        // I suspected that maybe what's wrong is the fact that the small < end condition 
-        // doesn't always hold. To make it hold, I thought that it's enough to
-        // add a dummy job--to be considered during boxing and discarded during
-        // unboxing.
         jobs_num_to_box += 1;
-        let mut test_h_max = (2 * h_max) as f64;
-        loop {
-            let test_r = test_h_max / h_min as f64;
-            if test_r > test_r.log2().powi(2) * mu_lim.powi(-6) {
-                break;
-            }
-            test_h_max *= 2.0;
-        };
+        // Demanding that small < end leads to the condition:
+        // r > lg2r * mu_lim.powi(-6)
+        // Via WolframAlpha, an approximate solution to that
+        // is any r > 2216.53...
+        //
+        // We thus plant such a "dummy" job in the instance.
+        h_max = (2216.54_f64 * h_min as f64).ceil() as ByteSteps;
         let dummy = Arc::new(Job {
-            size:   test_h_max as ByteSteps,
-            req_size: test_h_max as ByteSteps,
-            birth:  0,
-            death:  original_input.iter().map(|j| j.death).max().unwrap(),
+            size:               h_max,
+            req_size:           h_max,
+            birth:              0,
+            death:              original_input.iter().map(|j| j.death).max().unwrap(),
             originals_boxed:    0,
-            alignment:  None,
-            contents:   None,
-            id:      original_input.iter().map(|j| j.id).max().unwrap() + 1,
+            alignment:          None,
+            contents:           None,
+            id:                 original_input.iter().map(|j| j.id).max().unwrap() + 1,
         });
         original_input.push(dummy.clone());
         original_input.sort_unstable();
         dummy_job = Some(dummy);
-
         input = Instance::new(original_input);
-        let r = test_h_max / h_min as f64;
-        let lgr = r.log2();
-        let lg2r = lgr.powi(2);
-        let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
-        let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
-        let big_end = mu_lim * lg2r;
+        let (_mu_lim, small_end, big_end, _lg2r) = input.ctrl_prelude();
 
         init_rogue(input.clone(), small_end, big_end)
     };
@@ -76,7 +57,6 @@ pub fn main_loop(mut original_input: JobSet, max_iters: u32) {
     if mu > mu_lim {
         mu = 0.99 * mu_lim;
     }
-    let h_max = pre_boxed.min_max_height().1;
     let final_h = h_max as f64 / mu;
 
     // Last but not least, we'll need an interference graph
@@ -85,10 +65,9 @@ pub fn main_loop(mut original_input: JobSet, max_iters: u32) {
 
     loop {
         let boxed = c_15(pre_boxed.clone(), final_h, mu);
-        let original_jobs_boxed = boxed.total_originals_boxed();
-        debug_assert!(original_jobs_boxed == jobs_num_to_box, "Invalid boxing!");
+        debug_assert!(boxed.check_boxed_originals(jobs_num_to_box), "Invalid boxing!");
         let current_opt = boxed.place(&interference_graph, iters_done, best_opt, dumb_id);
-        assert!(current_opt == ByteSteps::MAX || current_opt >= target_load, "Bad placement");
+        debug_assert!(current_opt == ByteSteps::MAX || current_opt >= target_load, "Bad placement");
         if current_opt < best_opt {
             best_opt = current_opt;
         }
@@ -104,47 +83,7 @@ pub fn main_loop(mut original_input: JobSet, max_iters: u32) {
     );
     println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", best_opt, target_load, (best_opt - target_load) as f64 / target_load as f64 * 100.0);
 
-    // The last thing to do is compare idealloc with
-    // the most naive of heuristics.
-    let size_ordered = make_baseline(&interference_graph.1, true, dumb_id);
-    let size_makespan = do_best_fit(size_ordered, &interference_graph.0, iters_done, ByteSteps::MAX);
-    assert!(size_makespan >= best_opt, "Size-ordered was better! ({:.2}% less fragmentation) ", (best_opt - size_makespan) as f64 / input.load() as f64 * 100.0);
-    println!("{:.2}% less fragmentation than size-ordered!", (size_makespan - best_opt) as f64 / input.load() as f64 * 100.0);
-    iters_done += 1;
-    let area_ordered = make_baseline(&interference_graph.1, false, dumb_id);
-    let area_makespan = do_best_fit(area_ordered, &interference_graph.0, iters_done, ByteSteps::MAX);
-    assert!(area_makespan >= best_opt, "Area-ordered was better! ({:.2}% less fragmentation) ", (best_opt - area_makespan) as f64 / input.load() as f64 * 100.0);
-    println!("{:.2}% less fragmentation than area-ordered!", (area_makespan - best_opt) as f64 / input.load() as f64 * 100.0);
     unimplemented!()
-}
-
-/// Orders jobs by size or area and collects them
-/// in a best-fit compatible binary heap.
-fn make_baseline(jobs: &PlacedJobRegistry, by_size: bool, dumb_id: u32) -> LoosePlacement {
-    let sort_fn = |a: &&Rc<PlacedJob>, b: &&Rc<PlacedJob>| {
-        if by_size {
-            b.descr
-                .size
-                .cmp(&a.descr.size)
-        } else {
-            b.descr
-                .area()
-                .cmp(&a.descr.area())
-        }
-    };
-    let ordered: PlacedJobSet = jobs.values()
-        .filter(|j| j.descr.id != dumb_id)
-        .sorted_unstable_by(sort_fn)
-        .cloned()
-        .collect();
-    let mut symbolic_offset = 0;
-    for pj in &ordered {
-        pj.offset.set(symbolic_offset);
-        symbolic_offset += 1;
-    }
-
-    ordered.into_iter()
-        .collect()
 }
 
 /// Calls [rogue] for a variety of ε-values, returning the one
@@ -197,8 +136,6 @@ fn c_15(
     h:          f64,
     epsilon:    f64,
 ) -> Instance {
-    assert!(epsilon < (5.0_f64.sqrt() - 1.0) / 2.0);
-
     // Each bucket can be treated independently.
     // Embarassingly parallel operation. Consolidate
     // a Mutex-protected Instance.
@@ -206,7 +143,7 @@ fn c_15(
     input.make_buckets(epsilon)
         .into_par_iter()
         .for_each(|(h_i, unit_jobs)| {
-            assert!(h_i as f64 <= h, "T2 fed with zero H! (ε = {:.2})", epsilon);
+            debug_assert!(h_i as f64 <= h, "T2 fed with zero H! (ε = {:.2})", epsilon);
             let h_param = (h / h_i as f64).floor() as ByteSteps;
             let boxed = t_2(unit_jobs, h_param, h as ByteSteps, epsilon, None);
             let mut guard = res.lock().unwrap();                
@@ -235,7 +172,7 @@ struct T2Control {
 impl T2Control {
     fn new(jobs: &Instance) -> Self {
         let (start, end) = jobs.get_horizon();
-        assert!(start < end, "Same-ends horizon met.");
+        debug_assert!(start < end, "Same-ends horizon met.");
         let mid = Self::gen_crit(jobs, start, end);
 
         Self {
@@ -255,7 +192,7 @@ impl T2Control {
         // most safe implementation of `gen_crit`.
         use rand::{Rng, thread_rng};
 
-        assert!(left + 1 < right, "Bad range found.");
+        debug_assert!(left + 1 < right, "Bad range found.");
         let mut pts: Vec<ByteSteps> = vec![];
         let mut evts = get_events(&jobs.jobs);
         while let Some(evt) = evts.pop() {
@@ -305,7 +242,7 @@ fn t_2(
     // We split, in as efficient a way as possible, the input's jobs
     // into groups formed by their liveness in the critical points.
     let (r_coarse, x_is) = input.split_by_liveness(&ctrl.critical_points);
-    assert!(!r_coarse.is_empty(), "Theorem 2 entered infinite loop");
+    debug_assert!(!r_coarse.is_empty(), "Theorem 2 entered infinite loop");
 
     // X_is are going to be passed in future iterations and it makes sense
     // to make Instances out of them. R_is, however, will be immediately
@@ -648,7 +585,7 @@ impl Instance {
         // Measure unboxing time.
         let row_size = self.jobs[0].size;
         let loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size), &ig.1, dumb_id);
-        do_best_fit(loose, &ig.0, iters_done, makespan_lim)
+        do_best_fit(loose, &ig.0, iters_done, makespan_lim, false)
     }
 
     /// Splits instance to unit-height buckets, in the
@@ -659,14 +596,11 @@ impl Instance {
         let mut prev_floor = 1.0 / (1.0 + epsilon);
         let mut i = 0;
         let mut source = self;
-        let to_split = source.jobs.len();
-        let mut dealt_with = 0;
         while source.jobs.len() > 0 {
             let h = (1.0 + epsilon).powi(i);
             if source.jobs.iter().any(|j| j.size as f64 > prev_floor && j.size as f64 <= h) {
                 let h_split = h.floor() as ByteSteps;
                 let (toward_bucket, rem) = source.split_by_height(h_split);
-                dealt_with += toward_bucket.jobs.len();
                 res.insert(h_split, toward_bucket);
                 source = rem;
             }
@@ -674,22 +608,21 @@ impl Instance {
             i += 1;
         }
 
-        assert!(to_split == dealt_with);
-
         res
     }
 }
 
-/// Performs best-fit placement of an already-ordered collection
+/// Performs best/first-fit placement of an already-ordered collection
 /// of jobs (by some symbolic offset). Returns the resulting makespan.
 /// 
 /// Stops early if the running makespan exceeds a pre-defined limit.
 /// Prints the total time of the operation.
-fn do_best_fit(
+pub fn do_best_fit(
     mut loose:      LoosePlacement,
     ig:             &InterferenceGraph,
     iters_done:     u32,
     makespan_lim:   ByteSteps,
+    first_fit:      bool,
 ) -> ByteSteps {
     let mut max_address = 0;
     // Traverse loosely placed jobs in ascending offset.
@@ -725,10 +658,15 @@ fn do_best_fit(
                     offset_runner
                 };
                 if njo > test_addr && njo - test_addr >= min_gap_size {
-                    let gap = njo - test_addr;
-                    if gap < smallest_gap {
-                        smallest_gap = gap;
+                    if !first_fit {
+                        let gap = njo - test_addr;
+                        if gap < smallest_gap {
+                            smallest_gap = gap;
+                            best_offset = Some(test_addr);
+                        }
+                    } else {
                         best_offset = Some(test_addr);
+                        break;
                     }
                 }
                 offset_runner = test_addr.max(next_job.next_avail_addr());

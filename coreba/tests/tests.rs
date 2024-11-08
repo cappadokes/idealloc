@@ -1,6 +1,6 @@
 use coreba::utils::*;
 
-const MAX_ITERS: u32 = 100;
+const MAX_ITERS: u32 = 1;
 
 fn get_crate_root() -> Result<PathBuf, std::env::VarError> {
     Ok(PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?))

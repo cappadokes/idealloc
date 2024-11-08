@@ -5,6 +5,7 @@ mod instance;
 pub mod algo;
 pub mod utils;
 pub mod jobset;
+pub mod baselines;
 
 /// Imports, type aliases, traits ... in general
 /// useful stuff that shall be needed in many places.
