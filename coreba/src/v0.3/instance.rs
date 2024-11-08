@@ -135,7 +135,7 @@ impl Instance {
             }
         };
 
-        assert!(small.len() + high.len() == to_split);
+        debug_assert!(small.len() + high.len() == to_split);
 
         (Self::new(small), Self::new(high))
     }
@@ -146,7 +146,6 @@ impl Instance {
     pub fn split_by_liveness(self, pts: &BTreeSet<ByteSteps>) -> (JobSet, HashMap<ByteSteps, Instance>) {
         let mut x_is_base: HashMap<ByteSteps, Vec<Arc<Job>>> = HashMap::new();
         let mut live = vec![];
-        let mut dealt_with = 0;
 
         let mut pts_iter = pts.iter()
             .map(|x| *x)
@@ -166,7 +165,6 @@ impl Instance {
                             x_is_base.entry(q)
                                 .and_modify(|v| v.push(j.clone()))
                                 .or_insert(vec![j.clone()]);
-                            dealt_with += 1;
                         }
                         break;
                     } else {
@@ -179,11 +177,9 @@ impl Instance {
                                     x_is_base.entry(q)
                                         .and_modify(|v| v.push(j.clone()))
                                         .or_insert(vec![j.clone()]);
-                                    dealt_with += 1;
                                 } else if j.is_live_at(*t_q_next) {
                                     let j = jobs_iter.next().unwrap();
                                     live.push(j.clone());
-                                    dealt_with += 1;
                                 } else {
                                     continue 'points;
                                 }
@@ -194,7 +190,6 @@ impl Instance {
                 None    => { break; }
             }
         };
-        assert!(dealt_with == self.jobs.len(), "Bad liveness splitting!");
 
         (
             live,
@@ -232,7 +227,7 @@ impl Instance {
         };
         self.jobs = Arc::new(all);
         self.info = Info::merge(&mut self, &mut other);
-        assert!(self.jobs.len() == to_join);
+        debug_assert!(self.jobs.len() == to_join);
 
         self
     }
@@ -250,7 +245,7 @@ impl Instance {
         self.jobs = Arc::new(all);
         self.info = Info::merge(self, &mut other);
 
-        assert!(self.jobs.len() == to_join);
+        debug_assert!(self.jobs.len() == to_join);
     }
 
     pub fn ctrl_prelude(&mut self) -> (f64, f64, f64, f64) {

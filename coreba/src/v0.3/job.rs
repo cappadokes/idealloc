@@ -15,9 +15,10 @@ impl Job {
 
         debug_assert!(contents[..].is_sorted(), "{}", Backtrace::force_capture());
         // The box must be high enough to enclose all jobs.
-        assert!(get_load(&contents) <= height, "Bad boxing requested");
+        debug_assert!(get_load(&contents) <= height, "Bad boxing requested");
 
         contents.sort_unstable_by(|a, b| {
+            // TODO: Empirically check what's better.
             //(b.area()).cmp(
             //    &(a.area())
             //)
@@ -81,25 +82,6 @@ impl Job {
     /// after `t`.
     pub fn born_after(&self, t: ByteSteps) -> bool {
         self.birth >= t
-    }
-
-    /// Updates the job's "final" offset to the one that
-    /// has been currently computed for it.
-    ///
-    /// `idealloc` operates on a "best effort" basis if
-    /// configured to run for more than 1 iterations---thus
-    /// many offsets are computed per job, and eventually
-    /// those yielding the smallest makespan are chosen.
-    pub fn upd_off(&self) {
-        /*
-        let plc = self.home.as_ptr();
-        unsafe {
-            // I need the `unsafe` in order to change the offset
-            // in-place instead of copying and re-setting stuff.
-            (*plc).offset.replace((*plc).curr_offset.unwrap());
-        }
-        */
-        unimplemented!()
     }
 
     /// Returns the total number of discrete logical time units

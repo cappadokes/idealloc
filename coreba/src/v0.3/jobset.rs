@@ -74,27 +74,6 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
     }
 }
 
-pub fn originals_contained(jobs: &JobSet) -> u32 {
-    let version_1 = jobs.iter().fold(0, |count, j|  {
-        if j.is_original() { count + 1 }
-        else { count + j.originals_boxed }
-    });
-
-    let mut version_2 = 0;
-    for j in jobs {
-        if j.is_original() {
-            version_2 += 1;
-        } else {
-            let contents_ref = j.contents.as_ref().unwrap();
-            version_2 += originals_contained(contents_ref);
-        }
-    };
-
-    assert!(version_1 == version_2);
-
-    version_2
-}
-
 /// Forms Theorem 2's R_i groups. 
 pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
     let mut res = vec![];
@@ -173,8 +152,7 @@ pub fn get_total_originals_boxed(jobs: &JobSet) -> u32 {
 }
 
 /// Self-explanatory. Each [JobSet] of the returned vector
-/// is an IGC row. Rows returned are ordered by DECREASING
-/// lifespan--the longest rows are put first.
+/// is an IGC row.
 pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
     let mut res: Vec<JobSet> = vec![];
     // This is our inventory of free rows. We'll be pulling
@@ -200,38 +178,22 @@ pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
                         v.push(evt.job);
                     },
                     None    => {
-                        assert!(row_to_fill == res.len(), "Bad IGC impl!");
+                        debug_assert!(row_to_fill == res.len(), "Bad IGC impl!");
                         res.push(vec![evt.job]);
                     }
                 };
                 if free_rows.is_empty() {
                     // No free space! Add one more row to the top.
-                    assert!(free_rows.insert(max_row + 1), "Bad cheatsheet"); 
+                    debug_assert!(free_rows.insert(max_row + 1), "Bad cheatsheet"); 
                     max_row += 1;
                 }
             },
             EventKind::Death    => {
                 let row_to_vacate = cheatsheet.remove(&evt.job.id).unwrap();
-                assert!(free_rows.insert(row_to_vacate), "Bad bad bad");
+                debug_assert!(free_rows.insert(row_to_vacate), "Bad bad bad");
             }
         }
     };
-
-    /*
-        Doing away with this, as it both hurts boxing time
-        and doesn't make sense intuitively.
-
-        TODO: remove the comment in the future, when 100% sure.
-
-    // Put longest rows to the bottom.
-    res.sort_unstable_by(|a, b| {
-        b.iter()
-            .fold(0, |acc_life, j| { acc_life + j.lifetime()} )
-            .cmp(&a.iter()
-                    .fold(0, |acc_life, j| { acc_life + j.lifetime()})
-            )
-    });
-    */
 
     res
 }
