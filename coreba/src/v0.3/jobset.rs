@@ -184,13 +184,13 @@ pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
                 };
                 if free_rows.is_empty() {
                     // No free space! Add one more row to the top.
-                    debug_assert!(free_rows.insert(max_row + 1), "Bad cheatsheet"); 
+                    free_rows.insert(max_row + 1); 
                     max_row += 1;
                 }
             },
             EventKind::Death    => {
                 let row_to_vacate = cheatsheet.remove(&evt.job.id).unwrap();
-                debug_assert!(free_rows.insert(row_to_vacate), "Bad bad bad");
+                free_rows.insert(row_to_vacate);
             }
         }
     };

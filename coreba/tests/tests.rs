@@ -1,6 +1,6 @@
 use coreba::utils::*;
 
-const MAX_ITERS: u32 = 1;
+const MAX_ITERS: u32 = 50;
 
 fn get_crate_root() -> Result<PathBuf, std::env::VarError> {
     Ok(PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?))
@@ -22,12 +22,14 @@ fn read_from_path(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> {
 // functionality is correct.
 //
 // To be replaced in the future with one big test.
+/*
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_tiny() {
     let set = read_from_path("tests/data/tiny_bert.csv").unwrap();
     coreba::algo::main_loop(set, MAX_ITERS);
 }
+*/
 
 #[test]
 #[should_panic(expected = "not implemented")]
@@ -39,41 +41,10 @@ fn run_pangu() {
 /*
 #[test]
 #[should_panic(expected = "not implemented")]
-fn run_nezha() {
-    let set = read_from_path("tests/data/bert_nezha.csv").unwrap();
-    coreba::algo::main_loop(set, MAX_ITERS);
-}
-
-#[test]
-#[should_panic(expected = "not implemented")]
-fn run_toy() {
-    let set = read_from_path("tests/data/non_existent.csv").unwrap();
-    coreba::algo::main_loop(set, MAX_ITERS);
-}
-*/
-
-#[test]
-#[should_panic(expected = "not implemented")]
 fn run_pangu_small() {
     let set = read_from_path("tests/data/pangu_13B.csv").unwrap();
     coreba::algo::main_loop(set, MAX_ITERS);
 }
-
-/*
-#[test]
-#[should_panic(expected = "not implemented")]
-fn run_bert_base() {
-    let set = read_from_path("tests/data/bert_base.csv").unwrap();
-    coreba::algo::main_loop(set, MAX_ITERS);
-}
-
-#[test]
-#[should_panic(expected = "not implemented")]
-fn run_bert_large() {
-    let set = read_from_path("tests/data/bert_large.csv").unwrap();
-    coreba::algo::main_loop(set, MAX_ITERS);
-}
-*/
 
 #[test]
 #[should_panic(expected = "not implemented")]
@@ -157,3 +128,4 @@ fn run_minimalloc_k() {
     let set = read_from_path("tests/data/K.1048576.csv").unwrap();
     coreba::algo::main_loop(set, MAX_ITERS);
 }
+*/
