@@ -198,14 +198,14 @@ pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
     res
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 /// An [Event] is either a birth or a death.
 pub enum EventKind {
     Birth,
     Death,
 }
 
-#[derive(Eq)]
+#[derive(Eq, Clone)]
 pub struct Event {
     pub job:    Arc<Job>,
     pub evt_t:  EventKind,
@@ -221,7 +221,7 @@ pub struct Event {
 /// 
 /// We use these events to calculate things such as maximum load,
 /// interference graphs, fragmentation, critical points, etc.
-type Events = BinaryHeap<Event>;
+pub type Events = BinaryHeap<Event>;
 
 impl Ord for Event {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {

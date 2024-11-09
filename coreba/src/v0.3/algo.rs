@@ -536,7 +536,7 @@ fn strip_cuttin(
 // the file hosting the rest of the impls.
 impl Instance {
     /// Records all jobs that are concurrently live with each job.
-    fn build_interference_graph(&self) -> (InterferenceGraph, PlacedJobRegistry) {
+    pub fn build_interference_graph(&self) -> (InterferenceGraph, PlacedJobRegistry) {
         let mut res = HashMap::new();
         let mut reg_res = HashMap::new();
         // We will use traversal. As we process events, we will be updating
