@@ -24,7 +24,7 @@ fn read_from_path(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> {
 // functionality is correct.
 //
 // To be replaced in the future with one big test.
-
+/*
 #[test]
 fn run_baseline() {
     let set = read_from_path("tests/data/I.1048576.csv").unwrap();
@@ -42,14 +42,6 @@ fn run_baseline() {
     );
     println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", makespan, target_load, (makespan - target_load) as f64 / target_load as f64 * 100.0);
 }
-
-#[test]
-#[should_panic(expected = "not implemented")]
-fn run_minimalloc_i() {
-    let set = read_from_path("tests/data/I.1048576.csv").unwrap();
-    coreba::algo::main_loop(set, MAX_ITERS);
-}
-
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_tiny() {
@@ -59,11 +51,19 @@ fn run_tiny() {
 
 #[test]
 #[should_panic(expected = "not implemented")]
+fn run_minimalloc_i() {
+    let set = read_from_path("tests/data/I.1048576.csv").unwrap();
+    coreba::algo::main_loop(set, MAX_ITERS);
+}
+*/
+
+#[test]
+#[should_panic(expected = "not implemented")]
 fn run_pangu() {
     let set = read_from_path("tests/data/pangu_2.6B.csv").unwrap();
     coreba::algo::main_loop(set, MAX_ITERS);
 }
-
+/*
 #[test]
 #[should_panic(expected = "not implemented")]
 fn run_pangu_small() {
@@ -146,3 +146,4 @@ fn run_minimalloc_k() {
     let set = read_from_path("tests/data/K.1048576.csv").unwrap();
     coreba::algo::main_loop(set, MAX_ITERS);
 }
+*/

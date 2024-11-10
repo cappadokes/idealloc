@@ -119,6 +119,13 @@ pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
     res
 }
 
+pub fn get_max_size(jobs: &JobSet) -> ByteSteps {
+    jobs.iter()
+        .map(|j| j.size)
+        .max()
+        .unwrap()
+}
+
 pub fn get_load(jobs: &JobSet) -> ByteSteps {
     let (mut running, mut max) = (0, 0);
     let mut evts = get_events(jobs);

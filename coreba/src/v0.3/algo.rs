@@ -1,17 +1,21 @@
 use crate::utils::*;
 
 enum AnalysisResult {
-    NoOverlap,
-    SameSizes,
+    NoOverlap(JobSet),
+    SameSizes(JobSet),
     NeedsBA(BACtrl),
 }
 
 struct BACtrl {
     input:      Instance,
+    pre_boxed:  Instance,
     epsilon:    f64,
     to_box:     usize,
     real_load:  ByteSteps,
     dummy:      Option<Arc<Job>>,
+    ig:         InterferenceGraph,
+    reg:        PlacedJobRegistry,
+    mu_lim:     f64,
 }
 
 /// Realizes if:
@@ -87,10 +91,11 @@ fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                         let size_probe = sizes.take(&e.job.size).unwrap();
                         if jobs.iter()
                             .all(|j| { j.size == size_probe }) {
-                            return AnalysisResult::SameSizes;
+                            return AnalysisResult::SameSizes(jobs);
                         }
                     }
                 }
+                last_evt_was_birth = true;
             },
             EventKind::Death    => {
                 //---START MAX LOAD UPDATE
@@ -112,7 +117,7 @@ fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         // in case no actual overlap exists. We've currently
         // decided to do everything in one pass, but maybe
         // that should change in the future.
-        AnalysisResult::NoOverlap
+        AnalysisResult::NoOverlap(jobs)
     } else {
         // Interference graph has been built, max load has been computed.
         // BA needs to run, so we must compute epsilon, initialize rogue, etc.
@@ -124,22 +129,11 @@ fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         let small_end = (lg2r.powi(7) / r).powf(1.0 / 6.0);
         let mu_lim = (5.0_f64.sqrt() - 1.0) / 2.0;
         let big_end = mu_lim * lg2r;
-        let to_box = jobs.len();
+        let mut to_box = jobs.len();
+        let mut dummy = None;
+        let real_load = max_load;
 
-        if small_end < big_end {
-            // No dummy needed!
-            let mut instance = Instance::new(jobs);
-            instance.info.set_load(max_load);
-            instance.info.set_heights((h_min, h_max));
-            let (epsilon, input) = init_rogue(instance, small_end, big_end);
-            AnalysisResult::NeedsBA(BACtrl {
-                input,
-                epsilon,
-                to_box,
-                real_load:  max_load,
-                dummy:      None,
-            })
-        } else {
+        if small_end >= big_end {
             // Demanding that small < end leads to the condition:
             // r > lg2r * mu_lim.powi(-6)
             // Via WolframAlpha, an approximate solution to that
@@ -147,7 +141,7 @@ fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
             //
             // We thus plant such a "dummy" job in the instance.
             h_max = (2216.54_f64 * h_min as f64).ceil() as ByteSteps;
-            let dummy = Arc::new(Job {
+            let dummy_job = Arc::new(Job {
                 size:               h_max,
                 req_size:           h_max,
                 birth:              0,
@@ -157,112 +151,103 @@ fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 contents:           None,
                 id:                 max_id + 1,
             });
-            jobs.push(dummy.clone());
+            jobs.push(dummy_job.clone());
             jobs.sort_unstable();
-            let mut instance = Instance::new(jobs);
-            instance.info.set_load(max_load + h_max);
-            instance.info.set_heights((h_min, h_max));
-            let (_, small_end, big_end, _) = instance.ctrl_prelude();
-            let (epsilon, input) = init_rogue(instance, small_end, big_end);
-            // TODO: Not ready yet! IG, PlacedJobRegistry have neither been updated
-            // with the dummy (are they needed though?) nor are they included in
-            // BACtrl!
-            AnalysisResult::NeedsBA(BACtrl {
-                input,
-                epsilon,
-                to_box:     to_box + 1,
-                real_load:  max_load,
-                dummy:      Some(dummy),
-            })
+            to_box += 1;
+            max_load += h_max;
+            dummy = Some(dummy_job);
         }
+        let mut instance = Instance::new(jobs);
+        instance.info.set_load(max_load);
+        instance.info.set_heights((h_min, h_max));
+        let (_, small_end, big_end, _) = instance.ctrl_prelude();
+        assert!(small_end < big_end);
+        let (epsilon, pre_boxed) = init_rogue(instance.clone(), small_end, big_end);
+        AnalysisResult::NeedsBA(BACtrl {
+            input:      instance,
+            pre_boxed,
+            epsilon,
+            to_box,
+            real_load,
+            dummy,
+            ig,
+            reg:        registry,
+            mu_lim,
+        })
     }
 }
 
 /// Executes the core `idealloc` loop for a `max_iters`
 /// number of times. At the end the jobs in `input` have
 /// received placement offsets.
-pub fn main_loop(mut original_input: JobSet, max_iters: u32) {
+pub fn main_loop(original_input: JobSet, max_iters: u32) {
     // Measure total allocation time.
     let total_start = Instant::now();
 
-    match prelude_analysis(original_input) {
+    let (target_load, best_opt) = match prelude_analysis(original_input) {
+        AnalysisResult::NoOverlap(jobs) => {
+            (get_load(&jobs), get_max_size(&jobs))
+        },
+        AnalysisResult::SameSizes(jobs) => {
+            let l = get_load(&jobs);
 
-    }
+            (l, l)
+        },
+        AnalysisResult::NeedsBA(BACtrl {
+            mut input,
+            mut pre_boxed,
+            to_box,
+            epsilon,
+            real_load,
+            dummy,
+            ig,
+            reg,
+            mu_lim
+        }) => {
+            // Initializations...
+            let mut iters_done = 0;
+            let mut best_opt = ByteSteps::MAX;
+            let dumb_id = if let Some(ref dum) = dummy {
+                dum.id
+            } else {
+                // Guaranteed never to be encountered, unless if
+                // u32::MAX / 2 - jobs_num_to_box boxes are made.
+                u32::MAX / 2 + 1
+            };
+            let ig_reg = (ig, reg);
 
-    // Initializations...
-    let mut input = Instance::new(original_input.clone());
-    let (h_min, mut h_max) = input.min_max_height();
-    let mut iters_done = 0;
-    let mut best_opt = ByteSteps::MAX;
-    let mut jobs_num_to_box = input.jobs.len() as u32;
+            // Initializations related to the last
+            // invocation of C15.
+            let (_, mut mu, _, _) = pre_boxed.get_safety_info(epsilon);
+            if mu > mu_lim {
+                mu = 0.99 * mu_lim;
+            }
+            let (_h_min, h_max) = input.min_max_height();
+            let final_h = h_max as f64 / mu;
 
-    // The first thing to do is stabilize ε.
-    let (mu_lim, small_end, big_end, _lg2r) = input.ctrl_prelude();
+            loop {
+                let boxed = c_15(pre_boxed.clone(), final_h, mu);
+                debug_assert!(boxed.check_boxed_originals(to_box as u32), "Invalid boxing!");
+                let current_opt = boxed.place(&ig_reg, iters_done, best_opt, dumb_id);
+                debug_assert!(current_opt == ByteSteps::MAX || current_opt >= real_load, "Bad placement");
+                if current_opt < best_opt {
+                    best_opt = current_opt;
+                }
+                iters_done += 1;
+                if iters_done < max_iters && best_opt > real_load {
+                    pre_boxed = rogue(input.clone(), epsilon);
+                } else { break; }
+            };
 
-    let mut dummy_job = None;
-    let (epsilon, mut pre_boxed) = if small_end < big_end {
-        init_rogue(input.clone(), small_end, big_end)
-    } else {
-        jobs_num_to_box += 1;
-        // Demanding that small < end leads to the condition:
-        // r > lg2r * mu_lim.powi(-6)
-        // Via WolframAlpha, an approximate solution to that
-        // is any r > 2216.53...
-        //
-        // We thus plant such a "dummy" job in the instance.
-        h_max = (2216.54_f64 * h_min as f64).ceil() as ByteSteps;
-        let dummy = Arc::new(Job {
-            size:               h_max,
-            req_size:           h_max,
-            birth:              0,
-            death:              original_input.iter().map(|j| j.death).max().unwrap(),
-            originals_boxed:    0,
-            alignment:          None,
-            contents:           None,
-            id:                 original_input.iter().map(|j| j.id).max().unwrap() + 1,
-        });
-        original_input.push(dummy.clone());
-        original_input.sort_unstable();
-        dummy_job = Some(dummy);
-        input = Instance::new(original_input);
-        let (_mu_lim, small_end, big_end, _lg2r) = input.ctrl_prelude();
-
-        init_rogue(input.clone(), small_end, big_end)
-    };
-    let (dumb_id, target_load) = if let Some(j) = dummy_job {
-        (j.id, input.load() - j.size)
-    } else { (u32::MAX, input.load()) };
-
-    // Initializations related to the last
-    // invocation of C15.
-    let (_, mut mu, _, _) = pre_boxed.get_safety_info(epsilon);
-    if mu > mu_lim {
-        mu = 0.99 * mu_lim;
-    }
-    let final_h = h_max as f64 / mu;
-
-    // Last but not least, we'll need an interference graph
-    // for fast placement.
-    let interference_graph = input.build_interference_graph();
-
-    loop {
-        let boxed = c_15(pre_boxed.clone(), final_h, mu);
-        debug_assert!(boxed.check_boxed_originals(jobs_num_to_box), "Invalid boxing!");
-        let current_opt = boxed.place(&interference_graph, iters_done, best_opt, dumb_id);
-        debug_assert!(current_opt == ByteSteps::MAX || current_opt >= target_load, "Bad placement");
-        if current_opt < best_opt {
-            best_opt = current_opt;
+            (real_load, best_opt)
         }
-        iters_done += 1;
-        if iters_done < max_iters && best_opt > target_load {
-            pre_boxed = rogue(input.clone(), epsilon);
-        } else { break; }
     };
 
     println!(
         "Total allocation time: {} μs",
         total_start.elapsed().as_micros()
     );
+
     println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", best_opt, target_load, (best_opt - target_load) as f64 / target_load as f64 * 100.0);
 
     unimplemented!()
