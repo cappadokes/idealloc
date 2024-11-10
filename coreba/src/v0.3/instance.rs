@@ -21,6 +21,14 @@ impl Info {
 
         res
     }
+
+    pub fn set_load(&mut self, l: ByteSteps) {
+        self.load = Some(l);
+    }
+
+    pub fn set_heights(&mut self, (min, max): (ByteSteps, ByteSteps)) {
+        self.min_max_height = Some((min, max))
+    }
 }
 
 impl Instance {

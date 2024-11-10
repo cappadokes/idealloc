@@ -1,0 +1,1 @@
+1. My documentation states that a `JobSet` is *always* sorted by increasing birth. Does this hold?
