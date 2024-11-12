@@ -1,5 +1,13 @@
 use crate::utils::*;
 
+/// `idealloc` is, in its non-trivial case, probabilistic.
+/// It tries different placements again and again in a loop
+/// and picks the best one. This constant controls the
+/// maximum allowable number of iterations.
+/// 
+/// To be replaced later with a more sophisticated value.
+const MAX_ITERS: u32 = 100;
+
 enum AnalysisResult {
     NoOverlap(JobSet),
     SameSizes(JobSet),
@@ -177,21 +185,65 @@ fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
     }
 }
 
-/// Executes the core `idealloc` loop for a `max_iters`
-/// number of times. At the end the jobs in `input` have
-/// received placement offsets.
-pub fn main_loop(original_input: JobSet, max_iters: u32) {
+/// Assigns proper offsets to each buffer in `JobSet`,
+/// so that the resulting memory fragmentation is at
+/// most (`worst_case_frag` - 1.0) * 100.0 percent.
+/// 
+/// Returns the placement itself, and the corresponding
+/// makespan. If worst-case-fragmentation was exceeded,
+/// the immediately next best achieved placement is returned.
+pub fn main_loop(
+    original_input:     JobSet,
+    worst_case_frag:    f64,
+) -> (PlacedJobSet, ByteSteps) {
     // Measure total allocation time.
     let total_start = Instant::now();
 
-    let (target_load, best_opt) = match prelude_analysis(original_input) {
+    // There are some trivial cases in which the heavy-lifting
+    // of the core algorithm is unnecessary. We conduct an analysis
+    // first to see if any of said cases hold. Along the way we
+    // set up the context of the aforementioned heavy lifting, so
+    // as to avoid repeating computations if it ends up being needed.
+    let (target_load, best_opt, placement) = match prelude_analysis(original_input) {
         AnalysisResult::NoOverlap(jobs) => {
-            (get_load(&jobs), get_max_size(&jobs))
+            // Non-overlapping jobs can all be put in the
+            // same offset.
+            (
+                get_load(&jobs), 
+                get_max_size(&jobs),
+                jobs.into_iter()
+                    .map(|j| {
+                        let placed = PlacedJob::new(j);
+                        placed.offset.set(0);
+
+                        Rc::new(placed)
+                    })
+                    .collect()
+            )
         },
         AnalysisResult::SameSizes(jobs) => {
+            // Overlapping jobs all sharing the same size can
+            // be optimally placed with interval graph coloring.
+            //
+            // The resulting makespan equals their max load.
             let l = get_load(&jobs);
+            let row_size = jobs[0].size;
+            let mut res = vec![];
+            for (row_idx, igc_row) in interval_graph_coloring(jobs).into_iter()
+                                                                    .enumerate() {
+                res.append(
+                    &mut igc_row.into_iter()
+                        .map(|j| {
+                            let placed = PlacedJob::new(j);
+                            placed.offset.set(row_idx * row_size);
 
-            (l, l)
+                            Rc::new(placed)
+                        })
+                        .collect()
+                );
+            }
+
+            (l, l, res)
         },
         AnalysisResult::NeedsBA(BACtrl {
             mut input,
@@ -207,6 +259,7 @@ pub fn main_loop(original_input: JobSet, max_iters: u32) {
             // Initializations...
             let mut iters_done = 0;
             let mut best_opt = ByteSteps::MAX;
+            let target_opt = (real_load as f64 * worst_case_frag).floor() as ByteSteps;
             let dumb_id = if let Some(ref dum) = dummy {
                 dum.id
             } else {
@@ -234,12 +287,18 @@ pub fn main_loop(original_input: JobSet, max_iters: u32) {
                     best_opt = current_opt;
                 }
                 iters_done += 1;
-                if iters_done < max_iters && best_opt > real_load {
+                if iters_done < MAX_ITERS && best_opt > target_opt {
                     pre_boxed = rogue(input.clone(), epsilon);
                 } else { break; }
             };
 
-            (real_load, best_opt)
+            (
+                real_load,
+                best_opt,
+                ig_reg.1
+                    .into_values()
+                    .collect()
+            )
         }
     };
 
@@ -250,7 +309,7 @@ pub fn main_loop(original_input: JobSet, max_iters: u32) {
 
     println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", best_opt, target_load, (best_opt - target_load) as f64 / target_load as f64 * 100.0);
 
-    unimplemented!()
+    (placement, best_opt)
 }
 
 /// Calls [rogue] for a variety of ε-values, returning the one
@@ -702,43 +761,6 @@ fn strip_cuttin(
 // parts of the algorithm, so they're put here instead of
 // the file hosting the rest of the impls.
 impl Instance {
-    /// Records all jobs that are concurrently live with each job.
-    pub fn build_interference_graph(&self) -> (InterferenceGraph, PlacedJobRegistry) {
-        let mut res = HashMap::new();
-        let mut reg_res = HashMap::new();
-        // We will use traversal. As we process events, we will be updating
-        // a set of live jobs.
-        let mut live: HashMap<u32, Rc<PlacedJob>> = HashMap::new();
-        let mut evts = get_events(&self.jobs);
-
-        while let Some(e) = evts.pop() {
-            match e.evt_t {
-                EventKind::Birth    => {
-                    let init_vec: PlacedJobSet = live.values()
-                        .cloned()
-                        .collect();
-                    let new_entry = Rc::new(PlacedJob::new(e.job.clone()));
-                    // First, add a new entry, initialized to the currently live jobs.
-                    res.insert(e.job.id, init_vec);
-                    reg_res.insert(e.job.id, new_entry.clone());
-                    for (_, j) in &live {
-                        // Update currently live jobs' vectors with the new entry.
-                        let vec_handle = res.get_mut(&j.descr.id).unwrap();
-                        vec_handle.push(new_entry.clone());
-                    }
-                    // Add new entry to currently live jobs.
-                    live.insert(e.job.id, new_entry);
-                },
-                EventKind::Death    => {
-                    // Remove job from currently live.
-                    live.remove(&e.job.id);
-                },
-            }
-        }
-
-        (res, reg_res)
-    }
-
     // Unbox and tighten. Probably needs to be
     // implemented for another type or YIELD
     // another type.

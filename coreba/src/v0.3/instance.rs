@@ -81,23 +81,6 @@ impl Instance {
         )
     }
 
-    /// Calculates the optimal makespan,
-    /// that is, the max load of an instance.
-    pub fn load(&mut self) -> ByteSteps {
-        match self.info.load {
-            // Value has possibly been memoized, since
-            // its calculation requires traversal and is
-            // thus considered expensive.
-            Some(v) => v,
-            None => {
-                let v = get_load(&self.jobs);
-                self.info.load = Some(v);
-
-                v
-            }
-        }
-    }
-
     /// Returns the minimum and maximum TRUE height over the
     /// instance's jobs.
     pub fn min_max_height(&mut self) -> (ByteSteps, ByteSteps) {
