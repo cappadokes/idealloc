@@ -1,4 +1,4 @@
-use crate::utils::*;
+use crate::helpe::*;
 
 /// Initializes a JobSet with a given set of jobs.
 /// A successfully returned JobSet is guaranteed to be
@@ -205,61 +205,6 @@ pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
     res
 }
 
-#[derive(PartialEq, Eq, Clone)]
-/// An [Event] is either a birth or a death.
-pub enum EventKind {
-    Birth,
-    Death,
-}
-
-#[derive(Eq, Clone)]
-pub struct Event {
-    pub job:    Arc<Job>,
-    pub evt_t:  EventKind,
-    // Copy time here to elude pattern matching during
-    // comparison.
-    pub time:   ByteSteps,
-}
-
-/// Traversal of a [JobSet] can be thought as an ordered stream
-/// of events, with increasing time of occurence. Each [Job] generates
-/// two events, corresponding to the start/end of its lifetime
-/// respectively.
-/// 
-/// We use these events to calculate things such as maximum load,
-/// interference graphs, fragmentation, critical points, etc.
-pub type Events = BinaryHeap<Event>;
-
-impl Ord for Event {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // We're using a BinaryHeap, which is
-        // a max-priority queue. We want a min-one
-        // and so we're reversing the order of `cmp`.
-        if self.time != other.time {
-            other.time.cmp(&self.time)
-        } else {
-            if self.evt_t == other.evt_t {
-                std::cmp::Ordering::Equal
-            } else {
-                match self.evt_t {
-                    EventKind::Birth    => { std::cmp::Ordering::Less },
-                    EventKind::Death    => { std::cmp::Ordering::Greater },
-                }
-            }
-        }
-    }
-}
-impl PartialOrd for Event {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl PartialEq for Event {
-    fn eq(&self, other: &Self) -> bool {
-        self.time == other.time
-    }
-}
-
 pub fn get_events(jobs: &JobSet) -> Events {
     debug_assert!(jobs[..].is_sorted(), "{}", Backtrace::force_capture());
     let mut res = BinaryHeap::new();
@@ -279,96 +224,36 @@ pub fn get_events(jobs: &JobSet) -> Events {
     res
 }
 
-pub fn get_loose_placement(
-    mut jobs:           JobSet,
-    mut start_offset:   ByteSteps,
-    control_state:      UnboxCtrl,
-    ig:                 &PlacedJobRegistry,
-    dumb_id:            u32,
-) -> LoosePlacement {
-    let mut res = BinaryHeap::new();
-    match control_state {
-        UnboxCtrl::SameSizes(row_height)    => {
-            // If jobs are same-sized, do IGC!
-            // The jobs in each row will be non-overlapping.
-            jobs.sort_unstable();
-            for row in interval_graph_coloring(jobs) {
-                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
-                start_offset += row_height;
-            }
-        },
-        UnboxCtrl::NonOverlapping   => {
-            // If jobs are non-overlapping, they can all be put
-            // at the same offset.
-            for j in jobs {
-                if j.is_original() {
-                    if j.id != dumb_id {
-                        let to_put = ig.get(&j.id).unwrap().clone();
-                        to_put.offset.set(start_offset);
-                        res.push(to_put.clone());
+/// Finds gaps in between jobs of an IGC row, and adds
+/// their endpoints to an ordered set, eventually returned.
+/// 
+/// Used in the context of Theorem 2.
+pub fn gap_finder(row_jobs: &JobSet, (alpha, omega): (ByteSteps, ByteSteps)) -> BTreeSet<ByteSteps> {
+    let mut res = BTreeSet::new();
+    // Again we use event traversal. Row jobs are already sorted
+    // since IGC itself is a product of event traversal.
+    let mut evts = get_events(&row_jobs);
+    // We either have found the next gap's start, or we haven't.
+    // Initialize it optimistically to the left extreme of our
+    // horizon.
+    let mut gap_start = Some(alpha);
+
+    while let Some(evt) = evts.pop() {
+        match evt.evt_t {
+            EventKind::Birth    => {
+                if let Some(v) = gap_start {
+                    if v < evt.time {
+                        res.insert(v);
+                        res.insert(evt.time);
                     }
-                } else {
-                    res.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown, ig, dumb_id));
+                    gap_start = None;
                 }
-            }
-        },
-        UnboxCtrl::Unknown  => {
-            // We must find out on our own the jobs' characteristics.
-            // First check if they're all of the same size.
-            let size_probe = jobs[0].size;
-            if jobs.iter()
-                .skip(1)
-                .all(|j| { j.size == size_probe }) {
-                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe), ig, dumb_id));
-            } else {
-                // Then check if they're non-overlapping. We can do that
-                // by demanding that the corresponding events are always
-                // alternating between births and deaths.
-                jobs.sort_unstable();
-                let mut evts = get_events(&jobs);
-                let mut last_was_birth = false;
-                let mut non_overlapping = true;
-                while let Some(e) = evts.pop() {
-                    match e.evt_t {
-                        EventKind::Birth    => {
-                            if last_was_birth {
-                                non_overlapping = false;
-                                break;
-                            }
-                            last_was_birth = true;
-                        },
-                        EventKind::Death    => {
-                            last_was_birth = false;
-                        }
-                    }
-                }
-                if non_overlapping {
-                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
-                } else {
-                    // Here we know for a fact that the jobs are of multiple sizes, and they're also
-                    // overlapping. One idea is to use "big rocks first". This can be combined with
-                    // clustering (maybe more than one jobs are of the same size and can thus be
-                    // put in the same cluster).
-                    let mut size_buckets: HashMap<ByteSteps, JobSet> = HashMap::new();
-                    for j in jobs {
-                        size_buckets.entry(j.size)
-                            .and_modify(|e| e.push(j.clone()))
-                            .or_insert(vec![j]);
-                    }
-                    for (row_height, mut size_class) in size_buckets.into_iter()
-                        .sorted_unstable_by(|a, b| { b.0.cmp(&a.0)}) {
-                            size_class.sort_unstable();
-                            let igc_rows = interval_graph_coloring(size_class);
-                            let num_rows = igc_rows.len();
-                            for row in igc_rows {
-                                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
-                                start_offset += row_height * num_rows;
-                            }
-                    }
-                }
-            }
+            },
+            EventKind::Death    => { gap_start = Some(evt.time); }
         }
-    };
+    }
+    let last_gap_start = gap_start.unwrap();
+    if last_gap_start < omega { res.insert(last_gap_start); }
 
     res
 }

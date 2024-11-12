@@ -2,14 +2,14 @@
 
 mod job;
 mod instance;
-pub mod algo;
-pub mod utils;
-pub mod jobset;
-pub mod baselines;
+mod baselines;
+mod analyze;
 
-/// Imports, type aliases, traits ... in general
-/// useful stuff that shall be needed in many places.
-use crate::utils::*;
+pub mod algo;
+pub mod jobset;
+pub mod helpe;
+
+pub use crate::helpe::*;
 
 /// Our fundamental unit of interest. A [`Job`] is a complete description
 /// of the events triggered by the need for some memory:

@@ -1,8 +1,11 @@
-use crate::utils::*;
+use crate::{
+    helpe::*,
+    algo::placement::do_best_fit,
+};
 
 /// Orders jobs by size or area and collects them
 /// in a best/first-fit compatible binary heap.
-pub fn make_baseline(
+pub fn _make_baseline(
     jobs:       &PlacedJobRegistry,
     by_size:    bool,
     first_fit:  bool,

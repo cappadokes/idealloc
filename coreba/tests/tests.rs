@@ -1,4 +1,4 @@
-use coreba::utils::*;
+use coreba::*;
 
 const MAX_FRAG: f64 = 1.1;
 

@@ -1,4 +1,4 @@
-use crate::utils::*;
+use crate::helpe::*;
 
 /// Stores useful information about an [Instance].
 #[derive(Clone, Copy)]
@@ -43,6 +43,29 @@ impl Instance {
                 min_max_height: None,
             },
         }
+    }
+
+    /// Splits instance to unit-height buckets, in the
+    /// context of Corollary 15. Each bucket is indexed
+    /// by the height to be given to Theorem 2.
+    pub fn make_buckets(self, epsilon: f64) -> HashMap<ByteSteps, Instance> {
+        let mut res = HashMap::new();
+        let mut prev_floor = 1.0 / (1.0 + epsilon);
+        let mut i = 0;
+        let mut source = self;
+        while source.jobs.len() > 0 {
+            let h = (1.0 + epsilon).powi(i);
+            if source.jobs.iter().any(|j| j.size as f64 > prev_floor && j.size as f64 <= h) {
+                let h_split = h.floor() as ByteSteps;
+                let (toward_bucket, rem) = source.split_by_height(h_split);
+                res.insert(h_split, toward_bucket);
+                source = rem;
+            }
+            prev_floor = h;
+            i += 1;
+        }
+
+        res
     }
 
     pub fn check_boxed_originals(&self, target: u32) -> bool {
