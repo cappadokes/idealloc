@@ -1,12 +1,24 @@
 use crate::helpe::*;
 
-// Does the lower branch of T16 until its conditions don't hold.
-// Returns a same-sized Instance at all cases.
+/// Variant of Theorem 16 (p. 561-562), owed to the empirical
+/// realization that *ε must be greater than 1 in order for
+/// boxing's invariants to be preserved*.
+/// 
+/// Theorem 16 comprises two phases of computation. In the first
+/// phase, input jobs are partitioned into "small" and "big" ones.
+/// Corollary 15 (p. 561) is used to box the small ones, and the
+/// resulting boxes are merged along with the big ones into a new
+/// instance--for which Theorem 16 is again recursively called.
+/// 
+/// This function implements the aforementioned first phase
+/// until boxing's invariants are broken.
 pub fn rogue(mut input: Instance, epsilon: f64) -> Instance {
-    let (_r, mu, h, is_safe) = input.get_safety_info(epsilon);
+    let (r, mu, h, is_safe) = input.get_safety_info(epsilon);
     let target_size = (mu * h).floor() as ByteSteps;
 
     if is_safe {
+        // p. 562: "Assume first that lg^2r >= 1 / ε [...]"
+        assert!(r.log2().powi(2) >= 1.0 / epsilon);
         let (x_s, x_l) = input.split_by_height(target_size);
         let small_boxed = c_15(x_s, h, mu);
         rogue(x_l.merge_with(small_boxed), epsilon)
