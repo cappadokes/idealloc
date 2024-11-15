@@ -41,6 +41,7 @@ pub fn _make_baseline(
         // A large enough value.
         u32::MAX - 1,
         ByteSteps::MAX,
-        first_fit
+        first_fit,
+        0,
     )
 }

@@ -10,11 +10,12 @@ impl Instance {
         iters_done:     u32,
         makespan_lim:   ByteSteps,
         dumb_id:        u32,
+        start_addr:     ByteSteps
     ) -> ByteSteps {
         // Measure unboxing time.
         let row_size = self.jobs[0].size;
         let loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size), &ig.1, dumb_id);
-        do_best_fit(loose, &ig.0, iters_done, makespan_lim, false)
+        do_best_fit(loose, &ig.0, iters_done, makespan_lim, false, start_addr)
     }
 }
 
@@ -123,6 +124,7 @@ pub fn do_best_fit(
     iters_done:     u32,
     makespan_lim:   ByteSteps,
     first_fit:      bool,
+    start_addr:     ByteSteps,
 ) -> ByteSteps {
     let mut max_address = 0;
     // Traverse loosely placed jobs in ascending offset.
@@ -146,32 +148,22 @@ pub fn do_best_fit(
         while let Some(next_job) = jobs_vec.peek() {
             let njo = next_job.offset.get();
             if njo > offset_runner {
-                let test_addr = if let Some(a) = to_squeeze.descr.alignment {
-                    if offset_runner < a {
-                        a
-                    } else if offset_runner % a != 0 {
-                        (offset_runner / a + 1) * a
-                    } else {
-                        offset_runner
-                    }
-                } else {
-                    offset_runner
-                };
-                if njo > test_addr && njo - test_addr >= min_gap_size {
+                let test_off = to_squeeze.get_corrected_offset(start_addr, offset_runner);
+                if njo > test_off && njo - test_off >= min_gap_size {
                     if !first_fit {
-                        let gap = njo - test_addr;
+                        let gap = njo - test_off;
                         if gap < smallest_gap {
                             smallest_gap = gap;
-                            best_offset = Some(test_addr);
+                            best_offset = Some(test_off);
                         }
                     } else {
-                        best_offset = Some(test_addr);
+                        best_offset = Some(test_off);
                         break;
                     }
                 }
-                offset_runner = test_addr.max(next_job.next_avail_addr());
+                offset_runner = test_off.max(next_job.next_avail_offset());
             } else {
-                offset_runner = offset_runner.max(next_job.next_avail_addr());
+                offset_runner = offset_runner.max(next_job.next_avail_offset());
             }
             jobs_vec.next();
         }
@@ -179,7 +171,7 @@ pub fn do_best_fit(
             to_squeeze.offset.set(o);
         } else { to_squeeze.offset.set(offset_runner); }
         to_squeeze.times_squeezed.set(iters_done + 1);
-        let cand_makespan = to_squeeze.next_avail_addr();
+        let cand_makespan = to_squeeze.next_avail_offset();
         if cand_makespan > max_address {
             max_address = cand_makespan;
             if max_address > makespan_lim {

@@ -157,8 +157,31 @@ impl PlacedJob {
         }
     }
 
-    pub fn next_avail_addr(&self) -> ByteSteps {
+    pub fn next_avail_offset(&self) -> ByteSteps {
         self.offset.get() + self.descr.size
+    }
+
+    /// Returns the next biggest offset that satisfies
+    /// the job's alignment requirements, taking into
+    /// consideration the address space's base address.
+    pub fn get_corrected_offset(
+        &self, 
+        start_addr: ByteSteps,
+        cand:       ByteSteps
+    ) -> ByteSteps {
+        // Zero is aligned with everything.
+        if cand == 0 { cand }
+        else {
+            if let Some(a) = self.descr.alignment {
+                let test_addr = start_addr + cand;
+                if test_addr < a { a }
+                else if test_addr % a != 0 {
+                    (test_addr / a + 1) * a - start_addr
+                } else { cand }
+            }
+            // No alignment needed!
+            else { cand }
+        }
     }
 }
 

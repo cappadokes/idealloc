@@ -1,6 +1,8 @@
 pub mod boxing;
 pub mod placement;
 
+use placement::do_best_fit;
+
 use crate::{
     helpe::*,
     analyze::prelude_analysis,
@@ -21,6 +23,8 @@ pub const MAX_ITERS: u32 = 100;
 /// Assigns proper offsets to each buffer in `JobSet`,
 /// so that the resulting memory fragmentation is at
 /// most (`worst_case_frag` - 1.0) * 100.0 percent.
+/// Address space is assumed to start at `start_address`.
+/// All offsets are relative to that one.
 /// 
 /// Returns the placement itself, and the corresponding
 /// makespan. If worst-case-fragmentation was exceeded,
@@ -28,6 +32,7 @@ pub const MAX_ITERS: u32 = 100;
 pub fn main_loop(
     original_input:     JobSet,
     worst_case_frag:    f64,
+    start_address:      ByteSteps,
 ) -> (PlacedJobSet, ByteSteps) {
     // Measure total allocation time.
     let total_start = Instant::now();
@@ -47,7 +52,8 @@ pub fn main_loop(
                 jobs.into_iter()
                     .map(|j| {
                         let placed = PlacedJob::new(j);
-                        placed.offset.set(0);
+                        // Don't forget alignment!
+                        placed.offset.set(placed.get_corrected_offset(start_address, 0));
 
                         Rc::new(placed)
                     })
@@ -61,22 +67,17 @@ pub fn main_loop(
             // The resulting makespan equals their max load.
             let l = get_load(&jobs);
             let row_size = jobs[0].size;
-            let mut res = vec![];
+            let mut loose: LoosePlacement = BinaryHeap::new();
             for (row_idx, igc_row) in interval_graph_coloring(jobs).into_iter()
                                                                     .enumerate() {
-                res.append(
-                    &mut igc_row.into_iter()
-                        .map(|j| {
-                            let placed = PlacedJob::new(j);
-                            placed.offset.set(row_idx * row_size);
-
-                            Rc::new(placed)
-                        })
-                        .collect()
-                );
+                for j in igc_row {
+                    let semi_placed = PlacedJob::new(j);
+                    semi_placed.offset.set(row_idx * row_size);
+                    loose.push(Rc::new(semi_placed));
+                }
             }
 
-            (l, l, res)
+            (l, do_best_fit(loose, ig, 0, ByteSteps::MAX, false, start_address), )
         },
         AnalysisResult::NeedsBA(BACtrl {
             mut input,
@@ -114,7 +115,7 @@ pub fn main_loop(
             loop {
                 let boxed = c_15(pre_boxed.clone(), final_h, mu);
                 debug_assert!(boxed.check_boxed_originals(to_box as u32), "Invalid boxing!");
-                let current_opt = boxed.place(&ig_reg, iters_done, best_opt, dumb_id);
+                let current_opt = boxed.place(&ig_reg, iters_done, best_opt, dumb_id, start_address);
                 debug_assert!(current_opt == ByteSteps::MAX || current_opt >= real_load, "Bad placement");
                 if current_opt < best_opt {
                     best_opt = current_opt;
