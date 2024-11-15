@@ -12,12 +12,12 @@ RUN apt update &&       \
     lld                 \
     git
 WORKDIR /home
-RUN git clone https://github.com/iree-org/iree.git
+RUN git clone --branch dsa https://github.com/cappadokes/iree.git
 WORKDIR /home/iree
 RUN git submodule update --init
 RUN apt-get install -y pip curl
 RUN python3 -m pip install --upgrade pip
-RUN python -m pip install -r runtime/bindings/python/iree/runtime/build_requirements.txt
+RUN python3 -m pip install -r runtime/bindings/python/iree/runtime/build_requirements.txt
 RUN cmake -G Ninja -B ../iree-build/ -S .       \
     -DIREE_TARGET_BACKEND_CUDA=ON               \
     -DIREE_HAL_DRIVER_CUDA=ON                   \
