@@ -21,7 +21,7 @@ use self::boxing::{
 /// maximum allowable number of iterations.
 /// 
 /// To be replaced later with a more sophisticated value.
-pub const MAX_ITERS: u32 = 100;
+pub const MAX_LIVES: u32 = 100;
 
 /// Assigns proper offsets to each buffer in `JobSet`,
 /// so that the resulting memory fragmentation is at
@@ -96,11 +96,12 @@ pub fn main_loop(
             dummy,
             ig,
             reg,
-            mu_lim
+            mu_lim,
+            mut best_opt,
         }) => {
             // Initializations...
-            let mut iters_done = 0;
-            let mut best_opt = ByteSteps::MAX;
+            let mut lives_left = MAX_LIVES;
+            let mut total_iters = 1;
             let target_opt = (real_load as f64 * worst_case_frag).floor() as ByteSteps;
             let dumb_id = if let Some(ref dum) = dummy {
                 dum.id
@@ -123,14 +124,16 @@ pub fn main_loop(
             loop {
                 let boxed = c_15(pre_boxed.clone(), final_h, mu);
                 debug_assert!(boxed.check_boxed_originals(to_box as u32), "Invalid boxing!");
-                let current_opt = boxed.place(&ig_reg, iters_done, best_opt, dumb_id, start_address);
+                let current_opt = boxed.place(&ig_reg, total_iters, best_opt, dumb_id, start_address);
                 debug_assert!(current_opt == ByteSteps::MAX || current_opt >= real_load, "Bad placement");
                 if current_opt < best_opt {
                     debug_assert!(placement_is_valid(&ig_reg));
                     best_opt = current_opt;
+                    lives_left = MAX_LIVES + 1;
                 }
-                iters_done += 1;
-                if iters_done < MAX_ITERS && best_opt > target_opt {
+                total_iters += 1;
+                lives_left -= 1;
+                if lives_left > 0 && best_opt > target_opt {
                     pre_boxed = rogue(input.clone(), epsilon);
                 } else { break; }
             };

@@ -1,6 +1,5 @@
 use crate::{
-    helpe::*,
-    algo::boxing::rogue,
+    algo::{boxing::rogue, placement::do_best_fit}, helpe::*
 };
 
 /// Realizes if:
@@ -103,6 +102,29 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
     } else if same_sizes {
         AnalysisResult::SameSizes(jobs, ig, registry)
     } else {
+        // Create baseline.
+        let ordered: PlacedJobSet = registry.values()
+            .sorted_by(|a, b| { 
+                b.descr
+                    .size
+                    .cmp(&a.descr.size)
+                    .then(a.descr.id.cmp(&b.descr.id))
+                })
+            .cloned()
+            .collect();
+        let mut symbolic_offset = 0;
+        for pj in &ordered {
+            pj.offset.set(symbolic_offset);
+            symbolic_offset += 1;
+        }
+        let best_opt = do_best_fit(
+            ordered.into_iter()
+                .collect(),
+                &ig,
+                0, 
+                ByteSteps::MAX,
+                false,
+                0);
         // Interference graph has been built, max load has been computed.
         // BA needs to run, so we must compute epsilon, initialize rogue, etc.
         //
@@ -157,6 +179,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
             ig,
             reg:        registry,
             mu_lim,
+            best_opt,
         })
     }
 }

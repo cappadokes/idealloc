@@ -15,7 +15,7 @@ impl Instance {
         // Measure unboxing time.
         let row_size = self.jobs[0].size;
         let loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size), &ig.1, dumb_id);
-        do_best_fit(loose, &ig.0, iters_done, makespan_lim, true, start_addr)
+        do_best_fit(loose, &ig.0, iters_done, makespan_lim, false, start_addr)
     }
 }
 
@@ -99,11 +99,9 @@ pub fn get_loose_placement(
                         .sorted_unstable_by(|a, b| { b.0.cmp(&a.0)}) {
                             size_class.sort_unstable();
                             let igc_rows = interval_graph_coloring(size_class);
-                            let mut next_row_idx = 0;
                             for row in igc_rows {
                                 res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
-                                next_row_idx += 1;
-                                start_offset += row_height * next_row_idx;
+                                start_offset += row_height;
                             }
                     }
                 }

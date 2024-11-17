@@ -250,6 +250,7 @@ pub struct BACtrl {
     pub ig:         InterferenceGraph,
     pub reg:        PlacedJobRegistry,
     pub mu_lim:     f64,
+    pub best_opt:   ByteSteps,
 }
 
 /// Helper structure for Theorem 2.
