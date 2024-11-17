@@ -19,6 +19,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
     // For detecting overlap.
     let mut last_evt_was_birth = false;
     let mut overlap_exists = false;
+    let mut same_sizes = false;
     // For calculating max load.
     let (mut running_load, mut max_load): (ByteSteps, ByteSteps) = (0, 0);
     // For detecting size uniformity.
@@ -69,14 +70,14 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 live.insert(e.job.id, new_entry);
                 //---END IG BUILDING---
 
-                if last_evt_was_birth && !overlap_exists {
+                if last_evt_was_birth && !overlap_exists && !same_sizes {
                     // Overlap detected!
                     overlap_exists = true;
                     if sizes.len() == 1 {
                         let size_probe = sizes.take(&e.job.size).unwrap();
                         if jobs.iter()
                             .all(|j| { j.size == size_probe }) {
-                            return AnalysisResult::SameSizes(jobs);
+                                same_sizes = true;
                         }
                     }
                 }
@@ -98,11 +99,9 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
     };
 
     if !overlap_exists {
-        // TODO: the above loop is TOO heavy an overhead
-        // in case no actual overlap exists. We've currently
-        // decided to do everything in one pass, but maybe
-        // that should change in the future.
         AnalysisResult::NoOverlap(jobs)
+    } else if same_sizes {
+        AnalysisResult::SameSizes(jobs, ig, registry)
     } else {
         // Interference graph has been built, max load has been computed.
         // BA needs to run, so we must compute epsilon, initialize rogue, etc.
@@ -189,4 +188,22 @@ fn init_rogue(input: Instance, small: f64, big: f64) -> (f64, Instance) {
             break (best_e, best); 
         }
     }
+}
+
+pub fn placement_is_valid(ig_reg: &(InterferenceGraph, PlacedJobRegistry)) -> bool {
+    let (ig, reg) = ig_reg;
+    for (id, jobs) in ig {
+        let this_job = reg.get(id).unwrap();
+        let this_job_start = this_job.offset.get();
+        let this_job_end = this_job.next_avail_offset() - 1;
+        for j in jobs {
+            let that_job_start = j.offset.get();
+            let that_job_end = j.next_avail_offset() - 1;
+            if that_job_start > this_job_end { continue; }
+            else if that_job_start >= this_job_start { return false; }
+            else if that_job_end >= this_job_start { return false; }
+        }
+    }
+
+    true
 }

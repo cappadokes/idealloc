@@ -18,10 +18,6 @@ impl Job {
         debug_assert!(get_load(&contents) <= height, "Bad boxing requested");
 
         contents.sort_unstable_by(|a, b| {
-            // TODO: Empirically check what's better.
-            //(b.area()).cmp(
-            //    &(a.area())
-            //)
             b.size.cmp(&a.size)
         });
 

@@ -5,7 +5,10 @@ use placement::do_best_fit;
 
 use crate::{
     helpe::*,
-    analyze::prelude_analysis,
+    analyze::{
+        prelude_analysis,
+        placement_is_valid,
+    }
 };
 use self::boxing::{
     c_15,
@@ -60,7 +63,7 @@ pub fn main_loop(
                     .collect()
             )
         },
-        AnalysisResult::SameSizes(jobs) => {
+        AnalysisResult::SameSizes(jobs, ig, reg) => {
             // Overlapping jobs all sharing the same size can
             // be optimally placed with interval graph coloring.
             //
@@ -71,13 +74,18 @@ pub fn main_loop(
             for (row_idx, igc_row) in interval_graph_coloring(jobs).into_iter()
                                                                     .enumerate() {
                 for j in igc_row {
-                    let semi_placed = PlacedJob::new(j);
+                    let semi_placed = reg.get(&j.id).unwrap();
                     semi_placed.offset.set(row_idx * row_size);
-                    loose.push(Rc::new(semi_placed));
+                    loose.push(semi_placed.clone());
                 }
             }
 
-            (l, do_best_fit(loose, ig, 0, ByteSteps::MAX, false, start_address), )
+            (
+                l, 
+                do_best_fit(loose, &ig, 0, ByteSteps::MAX, false, start_address), 
+                reg.into_values()
+                    .collect()
+            )
         },
         AnalysisResult::NeedsBA(BACtrl {
             mut input,
@@ -118,6 +126,7 @@ pub fn main_loop(
                 let current_opt = boxed.place(&ig_reg, iters_done, best_opt, dumb_id, start_address);
                 debug_assert!(current_opt == ByteSteps::MAX || current_opt >= real_load, "Bad placement");
                 if current_opt < best_opt {
+                    debug_assert!(placement_is_valid(&ig_reg));
                     best_opt = current_opt;
                 }
                 iters_done += 1;

@@ -236,7 +236,7 @@ pub enum UnboxCtrl {
 
 pub enum AnalysisResult {
     NoOverlap(JobSet),
-    SameSizes(JobSet),
+    SameSizes(JobSet, InterferenceGraph, PlacedJobRegistry),
     NeedsBA(BACtrl),
 }
 

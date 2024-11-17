@@ -68,7 +68,7 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
     } else {
         Ok(in_elts
             .into_iter()
-            .sorted_unstable()
+            .sorted()
             .map(|x| Arc::new(x))
             .collect())
     }

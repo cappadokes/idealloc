@@ -2,12 +2,12 @@
 
 mod job;
 mod instance;
-mod baselines;
 mod analyze;
 
 pub mod algo;
 pub mod jobset;
 pub mod helpe;
+pub mod baselines;
 
 pub use crate::helpe::*;
 

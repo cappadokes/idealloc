@@ -18,7 +18,7 @@ pub fn rogue(mut input: Instance, epsilon: f64) -> Instance {
 
     if is_safe {
         // p. 562: "Assume first that lg^2r >= 1 / ε [...]"
-        assert!(r.log2().powi(2) >= 1.0 / epsilon);
+        debug_assert!(r.log2().powi(2) >= 1.0 / epsilon);
         let (x_s, x_l) = input.split_by_height(target_size);
         let small_boxed = c_15(x_s, h, mu);
         rogue(x_l.merge_with(small_boxed), epsilon)
