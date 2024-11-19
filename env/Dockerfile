@@ -33,5 +33,5 @@ RUN python3 -m pip install integrations/tensorflow/python_projects/iree_tf
 # Download Mobilenet_v2 expressed in TensorFlow.
 # Follow this tutorial: https://iree.dev/guides/ml-frameworks/tensorflow/#from-savedmodel-on-tensorflow-hub
 WORKDIR /home/models/mobilenet_v2
-RUN curl -L -o /home/models/mobilenet_v2/model.tar.gz https://www.kaggle.com/api/v1/models/google/mobilenet-v2/tensorFlow2/035-128-classification/2/download
+RUN curl -L -o /home/models/mobilenet_v2/model.tar.gz https://www.kaggle.com/api/v1/models/google/mobilenet-v2/tensorFlow2/tf2-preview-classification/4/download
 RUN tar -xvf model.tar.gz

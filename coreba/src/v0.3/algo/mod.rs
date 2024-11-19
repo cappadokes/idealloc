@@ -21,7 +21,7 @@ use self::boxing::{
 /// maximum allowable number of iterations.
 /// 
 /// To be replaced later with a more sophisticated value.
-pub const MAX_LIVES: u32 = 100;
+pub const MAX_LIVES: u32 = 15;
 
 /// Assigns proper offsets to each buffer in `JobSet`,
 /// so that the resulting memory fragmentation is at
