@@ -108,7 +108,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 b.descr
                     .size
                     .cmp(&a.descr.size)
-                    .then(a.descr.id.cmp(&b.descr.id))
+                    .then(b.descr.lifetime().cmp(&a.descr.lifetime()))
                 })
             .cloned()
             .collect();

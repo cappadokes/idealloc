@@ -125,6 +125,11 @@ pub fn do_best_fit(
     first_fit:      bool,
     start_addr:     ByteSteps,
 ) -> ByteSteps {
+    // TEMP PLOT BOILERPLATE START
+    //use plotters::prelude::*;
+    //let mut series: Vec<Rc<PlacedJob>> = vec![];
+    // TEMP PLOT BOILERPLATE END
+
     let mut max_address = 0;
     // Traverse loosely placed jobs in ascending offset.
     while let Some(to_squeeze) = loose.pop() {
@@ -177,6 +182,55 @@ pub fn do_best_fit(
                 return ByteSteps::MAX;
             }
         }
+        /*
+        // What follows is a temporary, quick-and-dirty
+        // visual debugging aid.
+        //
+        // After squeezing each next job, we plot it onto
+        // a chart.
+        series.push(to_squeeze);
+        let backend = SVGBackend::new("/home/cappadokes/Desktop/idealloc/coreba/debug.svg", (1920, 1080))
+            .into_drawing_area();
+        backend.fill(&WHITE).unwrap();
+        let backend = backend.margin(10, 10, 10 , 10);
+        let max_death = loose.iter()
+            .map(|j| j.descr.death)
+            .max()
+            .unwrap();
+        let jobs: JobSet = loose.iter()
+            .map(|j| j.descr.clone())
+            .sorted_unstable()
+            .collect();
+        let y_end = (1.5 * (get_load(&jobs) as f64)).ceil() as ByteSteps;
+        let mut chart = ChartBuilder::on(&backend)
+            .build_cartesian_2d(0..max_death, 0..y_end)
+            .unwrap();
+        chart.configure_mesh()
+            .draw()
+            .unwrap();
+        chart.draw_series(
+            series.iter()
+                .fold(vec![], |mut acc, pj| {
+                    let left_x = pj.descr.birth;
+                    let upper_y = pj.next_avail_offset();
+                    let right_x = pj.descr.death;
+                    let lower_y = pj.offset.get();
+                    acc.push(
+                        Rectangle::new(
+                            [(left_x, upper_y), (right_x, lower_y)],
+                            ShapeStyle {
+                                color: BLACK.into(),
+                                filled: false,
+                                stroke_width: 1,
+                            }
+                        )
+                    );
+
+                    acc
+                })
+        ).unwrap();
+        backend.present().unwrap();
+        */
     };
 
     max_address

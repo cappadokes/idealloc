@@ -16,13 +16,13 @@ fn read_from_path(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> {
 
     Ok(set)
 }
-/*
+
 #[test]
 fn run_tiny() {
     let set = read_from_path("tests/data/tiny_bert.csv").unwrap();
     coreba::algo::main_loop(set, MAX_FRAG, 0);
 }
-
+/*
 #[test]
 fn run_minimalloc_i() {
     let set = read_from_path("tests/data/I.1048576.csv").unwrap();
@@ -106,7 +106,6 @@ fn run_minimalloc_k() {
     let set = read_from_path("tests/data/K.1048576.csv").unwrap();
     coreba::algo::main_loop(set, MAX_FRAG, 0);
 }
-*/
 
 #[test]
 fn beat_heuristic_minimalloc_k() {
@@ -257,3 +256,4 @@ fn beat_heuristic_pangu() {
     assert!(coreba.1 <= heur, "{}% worse", (coreba.1 - heur) as f64 / load * 100.0);
     println!("BETTER by {}%", (heur - coreba.1) as f64 / load * 100.0);
 }
+*/

@@ -40,6 +40,7 @@ pub fn make_baseline(
             b.descr
                 .size
                 .cmp(&a.descr.size)
+                .then(b.descr.lifetime().cmp(&a.descr.lifetime()))
         } else {
             b.descr
                 .area()
