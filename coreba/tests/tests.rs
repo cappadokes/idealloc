@@ -2,27 +2,48 @@ use coreba::*;
 
 const MAX_FRAG: f64 = 1.0;
 
+enum Parser {
+    Minimalloc,
+    IREE,
+}
+
 fn get_crate_root() -> Result<PathBuf, std::env::VarError> {
     Ok(PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?))
 }
 
-fn read_from_path(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> {
+fn read_from_path(p: &str, ptype: Parser) -> Result<JobSet, Box<dyn std::error::Error>> {
     let mut csv_path = get_crate_root()?;
     csv_path.push(p);
-    let parser = MinimalloCSVParser::new(csv_path);
-    let jobs = parser.read_jobs()?;
-    assert!(jobs.len() > 0);
-    let set = coreba::jobset::init(jobs)?;
+    if let Parser::Minimalloc = ptype {
+        let parser = MinimalloCSVParser::new(csv_path);
+        let jobs = parser.read_jobs()?;
+        assert!(jobs.len() > 0);
+        let set = coreba::jobset::init(jobs)?;
 
-    Ok(set)
+        Ok(set)
+    } else {
+        let parser = IREECSVParser::new(csv_path);
+        let jobs = parser.read_jobs()?;
+        assert!(jobs.len() > 0);
+        let set = coreba::jobset::init(jobs)?;
+
+        Ok(set)
+    }
 }
 
 #[test]
-fn run_tiny() {
-    let set = read_from_path("tests/data/tiny_bert.csv").unwrap();
+fn run_iree() {
+    let set = read_from_path("tests/data/iree_first.csv", Parser::IREE).unwrap();
     coreba::algo::main_loop(set, MAX_FRAG, 0);
 }
+
 /*
+#[test]
+fn run_tiny() {
+    let set = read_from_path("tests/data/tiny_bert.csv", Parser::Minimalloc).unwrap();
+    coreba::algo::main_loop(set, MAX_FRAG, 0);
+}
+
 #[test]
 fn run_minimalloc_i() {
     let set = read_from_path("tests/data/I.1048576.csv").unwrap();

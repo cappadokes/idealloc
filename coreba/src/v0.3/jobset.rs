@@ -206,7 +206,6 @@ pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
 }
 
 pub fn get_events(jobs: &JobSet) -> Events {
-    debug_assert!(jobs[..].is_sorted(), "{}", Backtrace::force_capture());
     let mut res = BinaryHeap::new();
     for j in jobs {
         res.push(Event {

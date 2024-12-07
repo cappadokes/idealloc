@@ -131,6 +131,107 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
     }
 }
 
+/// A helper type for parsing IREE-born buffers stored into
+/// the standard minimalloc CSV format.
+/// 
+/// We introduce this additional type because IREE adopts
+/// *inclusive* semantics on both ends of a buffer's lifetime.
+/// Thus conversion is needed.
+pub struct IREECSVParser {
+    dirty:  PathBuf,
+}
+
+impl IREECSVParser {
+    pub fn new(dirty: PathBuf) -> Self {
+        Self {
+            dirty,
+        }
+    }
+}
+
+impl JobGen<Job> for IREECSVParser {
+    fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
+        // We are going to use traversal, and put "fixed" jobs
+        // in a max-heap according to their OLD deaths.
+        struct IREEJob {
+            job:        Job,
+            old_death:  ByteSteps,
+        }
+        impl Ord for IREEJob {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                self.job.death.cmp(&other.job.death)
+            }
+        }
+        impl PartialOrd for IREEJob {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl PartialEq for IREEJob {
+            fn eq(&self, other: &Self) -> bool {
+                self.job == other.job
+            }
+        }
+        impl Eq for IREEJob {}
+        let helper = MinimalloCSVParser::new(self.dirty.clone());
+        let dirty_jobs: JobSet = helper.read_jobs()
+            .unwrap()
+            .into_iter()
+            .map(|j| Arc::new(j))
+            .collect();
+        let mut events = get_events(&dirty_jobs);
+        let mut retired: BinaryHeap<IREEJob> = BinaryHeap::new();
+        let mut to_retire: HashMap<u32, IREEJob> = HashMap::new();
+        while let Some(e) = events.pop() {
+            match e.evt_t {
+                EventKind::Birth    => {
+                    // If no other job dies before this one, the only
+                    // change needed is to increment its death by 2.
+                    let mut template = IREEJob {
+                            job:    Job {
+                                size:               e.job.size,
+                                birth:              e.job.birth,
+                                death:              e.job.death + 2,
+                                req_size:           e.job.size,
+                                alignment:          None,
+                                contents:           None,
+                                originals_boxed:    0,
+                                id: e.job.id,
+                            },
+                            old_death:              e.job.death,
+                    };
+                    if !retired.is_empty() {
+                        // If at least one job dies before this one, in
+                        // order for the instance's semantics to be preserved,
+                        // we slide the job to the right by as many units as
+                        // its original distance from the latest-dying job.
+                        //
+                        // As complex as it may sound, it is quite simple to
+                        // prove that the two instances are equivalent.
+                        let old_biggest_death = retired.peek()
+                            .unwrap()
+                            .old_death;
+                        template.job.birth += e.job.birth - old_biggest_death;
+                        template.job.death += e.job.birth - old_biggest_death;
+                    }
+                    to_retire.insert(template.job.id, template);
+                },
+                EventKind::Death    => {
+                    retired.push(to_retire.remove(&e.job.id).unwrap());
+                }
+            }
+        };
+
+        Ok(
+            retired.into_iter()
+                .map(|j| j.job)
+                .collect()
+        )
+    }
+    fn gen_single(&self, d: Job, _id: u32) -> Job {
+        d
+    }
+}
 //---END EXTERNAL INTERFACES
 
 //---START PLACEMENT PRIMITIVES
