@@ -15,6 +15,7 @@ use crate::{
 /// lifting: a dummy [Job] is possibly inserted to ensure convergence,
 /// the [InterferenceGraph] is built, max load is computed.
 pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
+    let prelude_cost = Instant::now();
     // For detecting overlap.
     let mut last_evt_was_birth = false;
     let mut overlap_exists = false;
@@ -98,8 +99,10 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
     };
 
     if !overlap_exists {
+        println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
         AnalysisResult::NoOverlap(jobs)
     } else if same_sizes {
+        println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
         AnalysisResult::SameSizes(jobs, ig, registry)
     } else {
         // Create baseline.
@@ -169,6 +172,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         let (_, small_end, big_end, _) = instance.ctrl_prelude();
         assert!(small_end < big_end);
         let (epsilon, pre_boxed) = init_rogue(instance.clone(), small_end, big_end);
+        println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
         AnalysisResult::NeedsBA(BACtrl {
             input:      instance,
             pre_boxed,
