@@ -23,8 +23,10 @@ use self::boxing::{
 /// 
 /// `idealloc` is, in its non-trivial case, probabilistic.
 /// It tries different placements again and again in a loop
-/// and picks the best one. This constant controls the
-/// maximum allowable number of iterations.
+/// and picks the best one. This constant controls the maximum
+/// number of iterations allowed to `idealloc` to outperform its
+/// last best placement. The *total* number of iterations is
+/// thus stochastic.
 /// 
 /// Returns the placement itself, and the corresponding
 /// makespan. If worst-case-fragmentation was exceeded,
@@ -97,6 +99,7 @@ pub fn idealloc(
             mu_lim,
             mut best_opt,
         }) => {
+            let heuristic_opt = best_opt;
             // Initializations...
             let mut lives_left = max_lives;
             let mut total_iters = 1;
@@ -136,6 +139,11 @@ pub fn idealloc(
                 } else { break; }
             };
 
+            println!(
+                "{:.2}% less fragmentation against heuristic.",
+                (heuristic_opt - best_opt) as f64 / real_load as f64 * 100.0
+            );
+
             (
                 real_load,
                 best_opt,
@@ -151,7 +159,11 @@ pub fn idealloc(
         total_start.elapsed().as_micros()
     );
 
-    println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", best_opt, target_load, (best_opt - target_load) as f64 / target_load as f64 * 100.0);
+    println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", 
+        best_opt, 
+        target_load, 
+        (best_opt - target_load) as f64 / target_load as f64 * 100.0
+    );
 
     (placement, best_opt)
 }
