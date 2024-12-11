@@ -13,12 +13,12 @@ impl Job {
         use std::{sync::atomic::AtomicU32, u32};
         static NEXT_ID: AtomicU32 = AtomicU32::new(u32::MAX);
 
-        debug_assert!(contents[..].is_sorted(), "{}", Backtrace::force_capture());
         // The box must be high enough to enclose all jobs.
         debug_assert!(get_load(&contents) <= height, "Bad boxing requested");
 
         contents.sort_unstable_by(|a, b| {
             b.size.cmp(&a.size)
+                .then(b.lifetime().cmp(&a.lifetime()))
         });
 
         let mut birth = ByteSteps::MAX;

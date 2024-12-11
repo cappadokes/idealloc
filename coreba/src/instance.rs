@@ -89,19 +89,17 @@ impl Instance {
 
     /// Returns (smallest birth, largest death).
     pub fn get_horizon(&self) -> (ByteSteps, ByteSteps) {
-        (
-            // Assuming that the jobs are sorted, smallest
-            // birth is always at the first spot.
-            self.jobs
-                .first()
-                .unwrap()
-                .birth,
-            self.jobs
-                .iter()
-                .map(|j| { j.death })
-                .max()
-                .unwrap()
-        )
+        self.jobs.iter()
+            .fold((ByteSteps::MAX, 0), |(mut smallest_birth, mut largest_death), j| {
+                if j.birth < smallest_birth {
+                    smallest_birth = j.birth;
+                }
+                if j.death > largest_death {
+                    largest_death = j.death;
+                }
+
+                (smallest_birth, largest_death)
+            })
     }
 
     /// Returns the minimum and maximum TRUE height over the
@@ -165,7 +163,10 @@ impl Instance {
             .map(|x| *x)
             .enumerate()
             .peekable();
-        let mut jobs_iter = self.jobs.iter().peekable();
+        let mut jobs_iter = self.jobs
+            .iter()
+            .sorted_unstable()
+            .peekable();
 
         'points: loop {
             // Assumption: no remaining, i.e., non-dealt-with Job
@@ -228,14 +229,16 @@ impl Instance {
                     .chain(other.jobs
                         .iter()
                         .cloned())
-                    .sorted_unstable()
+                        // TODO: Sorting removed!
+                    //.sorted_unstable()
                     .collect()
             },
             Err(arc)    => {
                 arc.iter()
                 .chain(other.jobs.iter())
                 .cloned()
-                .sorted_unstable()
+                // TODO: Sorting removed!
+                //.sorted_unstable()
                 .collect()
             }
         };
@@ -254,7 +257,8 @@ impl Instance {
             .iter()
             .chain(other.jobs.iter())
             .cloned()
-            .sorted_unstable()
+            // TODO: Sorting removed!
+            //.sorted_unstable()
             .collect();
         self.jobs = Arc::new(all);
         self.info = Info::merge(self, &mut other);

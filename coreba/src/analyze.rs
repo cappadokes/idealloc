@@ -161,7 +161,8 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 id:                 max_id + 1,
             });
             jobs.push(dummy_job.clone());
-            jobs.sort_unstable();
+            // TODO: Sorting removed!
+            //jobs.sort_unstable();
             to_box += 1;
             max_load += h_max;
             dummy = Some(dummy_job);

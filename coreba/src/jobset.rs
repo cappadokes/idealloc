@@ -68,18 +68,11 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
         }
     }
 
-    if in_elts.is_sorted() {
-        Ok(in_elts
-            .into_iter()
-            .map(|x| Arc::new(x))
-            .collect())
-    } else {
-        Ok(in_elts
-            .into_iter()
-            .sorted()
-            .map(|x| Arc::new(x))
-            .collect())
-    }
+    // TODO: Sorting removed.
+    Ok(in_elts
+        .into_iter()
+        .map(|x| Arc::new(x))
+        .collect())
 }
 
 /// Forms Theorem 2's R_i groups. 
