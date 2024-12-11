@@ -240,26 +240,23 @@ impl PlacedJob {
         self.offset.get() + self.descr.size
     }
 
-    /// Returns the next biggest offset that satisfies
-    /// the job's alignment requirements, taking into
-    /// consideration the address space's base address.
+    /// Returns a [naturally aligned](https://docs.kernel.org/core-api/unaligned-memory-access.html)
+    /// offset for the job.
     pub fn get_corrected_offset(
         &self, 
         start_addr: ByteSteps,
         cand:       ByteSteps
     ) -> ByteSteps {
-        // Zero is aligned with everything.
-        if cand == 0 { cand }
-        else {
-            if let Some(a) = self.descr.alignment {
-                let test_addr = start_addr + cand;
-                if test_addr < a { a }
-                else if test_addr % a != 0 {
-                    (test_addr / a + 1) * a - start_addr
-                } else { cand }
-            }
-            // No alignment needed!
-            else { cand }
+        let job_size = self.descr.size;
+        let cand_addr = start_addr + cand;
+        if cand_addr == 0 || cand_addr % job_size == 0 { cand }
+        else if cand_addr < job_size {
+            // Offset is the job size itself.
+            job_size - start_addr
+        } else {
+            // Initial candidate address is bigger than the
+            // job size, but not a multiple of it.
+            (cand_addr / job_size + 1) * job_size - start_addr
         }
     }
 }

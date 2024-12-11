@@ -14,7 +14,3 @@ itertools   = { workspace = true }
 thiserror   = { workspace = true }
 rayon       = { workspace = true }
 rand        = { workspace = true }
-# plotters    = { workspace = true }
-
-[lib]
-path    = "src/v0.3/mod.rs"
