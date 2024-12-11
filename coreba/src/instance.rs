@@ -229,16 +229,12 @@ impl Instance {
                     .chain(other.jobs
                         .iter()
                         .cloned())
-                        // TODO: Sorting removed!
-                    //.sorted_unstable()
                     .collect()
             },
             Err(arc)    => {
                 arc.iter()
                 .chain(other.jobs.iter())
                 .cloned()
-                // TODO: Sorting removed!
-                //.sorted_unstable()
                 .collect()
             }
         };
@@ -257,8 +253,6 @@ impl Instance {
             .iter()
             .chain(other.jobs.iter())
             .cloned()
-            // TODO: Sorting removed!
-            //.sorted_unstable()
             .collect();
         self.jobs = Arc::new(all);
         self.info = Info::merge(self, &mut other);

@@ -31,8 +31,6 @@ pub fn get_loose_placement(
         UnboxCtrl::SameSizes(row_height)    => {
             // If jobs are same-sized, do IGC!
             // The jobs in each row will be non-overlapping.
-            // TODO: Sorting removed!
-            //jobs.sort_unstable();
             for row in interval_graph_coloring(jobs) {
                 res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
                 start_offset += row_height;
@@ -65,8 +63,6 @@ pub fn get_loose_placement(
                 // Then check if they're non-overlapping. We can do that
                 // by demanding that the corresponding events are always
                 // alternating between births and deaths.
-                // TODO: Sorting removed!
-                //jobs.sort_unstable();
                 let mut evts = get_events(&jobs);
                 let mut last_was_birth = false;
                 let mut non_overlapping = true;
@@ -99,8 +95,6 @@ pub fn get_loose_placement(
                     }
                     for (row_height, size_class) in size_buckets.into_iter()
                         .sorted_unstable_by(|a, b| { b.0.cmp(&a.0)}) {
-                            // TODO: Sorting removed!
-                            //size_class.sort_unstable();
                             let igc_rows = interval_graph_coloring(size_class);
                             for row in igc_rows {
                                 res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));

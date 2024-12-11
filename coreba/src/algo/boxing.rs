@@ -104,10 +104,6 @@ fn t_2(
         }
     }
 
-    // We want to apply IGC to `all_unresolved`. We're going to
-    // use traversal, so the jobs must be sorted.
-    // TODO: Sorting removed!
-    //all_unresolved.sort_unstable();
     let igc_rows = interval_graph_coloring(all_unresolved);
 
     // The produced rows implicitly generate "gaps", which will be used
@@ -123,15 +119,11 @@ fn t_2(
         row_count += 1;
         jobs_buf.append(&mut row);
         if row_count % h == 0 {
-            // TODO: Sorting removed!
-            //jobs_buf.sort_unstable();
             res_jobs.push(Arc::new(Job::new_box(jobs_buf, h_real)));
             jobs_buf = vec![];
         }
     }
     if !jobs_buf.is_empty() {
-        // TODO: Sorting removed!
-        //jobs_buf.sort_unstable();
         res_jobs.push(Arc::new(Job::new_box(jobs_buf, h_real)));
     }
 

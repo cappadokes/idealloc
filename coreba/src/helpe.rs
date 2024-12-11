@@ -481,8 +481,7 @@ fn strip_box_core(
                 .peekable()
         };
         while iter.peek().is_some() {
-            let mut to_cut = strip_cuttin(&mut iter, true, group_size);
-            to_cut.sort_unstable();
+            let to_cut = strip_cuttin(&mut iter, true, group_size);
             res.push(Arc::new(
                 Job::new_box(
                     to_cut,

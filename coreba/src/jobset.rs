@@ -68,7 +68,6 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
         }
     }
 
-    // TODO: Sorting removed.
     Ok(in_elts
         .into_iter()
         .map(|x| Arc::new(x))
