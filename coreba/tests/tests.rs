@@ -34,7 +34,7 @@ fn read_from_path(p: &str, ptype: Parser) -> Result<JobSet, Box<dyn std::error::
 #[test]
 fn run_iree() {
     let set = read_from_path("tests/data/iree_first.csv", Parser::IREE).unwrap();
-    coreba::algo::main_loop(set, MAX_FRAG, 0);
+    coreba::algo::idealloc(set, MAX_FRAG, 0, 1);
 }
 
 /*
