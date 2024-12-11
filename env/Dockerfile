@@ -1,59 +1,37 @@
-FROM ubuntu:22.04
-
-ARG UID
-ARG GID
-
-RUN apt-get update
-
-#   Create user for development.
-RUN groupadd --gid $GID ideapilot                   \
-    && useradd --uid $UID --gid $GID -m ideapilot   \
-    # Add sudo support in case something needs to be installed.
-    && apt-get install -y sudo                      \
-    && echo ideapilot ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/ideapilot  \
-    && chmod 0440 /etc/sudoers.d/ideapilot
-
-USER ideapilot
-WORKDIR /home/ideapilot
-
-#--------------------------------------------------------------------------------------------------
-
-#   Install Phoronix Test Suite.
-RUN sudo DEBIAN_FRONTEND=noninteractive apt-get install -y  \
-    pkg-config fontconfig                                   \
-    php8.1-cli php-xml                                      \
-    zip unzip apt-utils curl bzip2 build-essential apt-file \
-    autoconf mesa-utils vulkan-tools                        \
-    vim libfontconfig1-dev libgmock-dev
-
-RUN mkdir build_tools
-COPY phoronix-test-suite_10.8.4_all.deb build_tools
-RUN sudo DEBIAN_FRONTEND=noninteractive dpkg -i build_tools/phoronix-test-suite_10.8.4_all.deb
-
-#--------------------------------------------------------------------------------------------------
-
-#   Install Rust.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-#--------------------------------------------------------------------------------------------------
-
-#   Install allocators.
-
-#--------------------------------------------------------------------------------------------------
-
-RUN sudo apt-get install -y libfontconfig1-dev htop ssh git
-WORKDIR build_tools
-RUN wget https://github.com/Kitware/CMake/releases/download/v3.28.2/cmake-3.28.2.tar.gz
-RUN tar xvf cmake-3.28.2.tar.gz
-WORKDIR cmake-3.28.2
-RUN ./bootstrap --parallel=8 -- -DCMAKE_USE_OPENSSL=OFF && make -j8 && sudo make install
-WORKDIR /home/ideapilot
-RUN git clone --recursive https://github.com/google/minimalloc.git
-WORKDIR minimalloc
-RUN cmake -DCMAKE_BUILD_TYPE=Release && make -j8
-
-#   Clean up mess.
-WORKDIR /home/ideapilot
-RUN phoronix-test-suite install compress-gzip espeak
-
-RUN rm -r build_tools
+# CAUTION: base image has been selected in accordance
+# with a *specific* host machine-NVIDIA driver combo.
+#
+# Pick your own!
+FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu22.04
+RUN apt update &&       \
+    apt-get install -y  \
+    # IREE installation deps
+    cmake               \
+    ninja-build         \
+    clang               \
+    lld                 \
+    git
+WORKDIR /home
+RUN git clone --branch dsa https://github.com/cappadokes/iree.git
+WORKDIR /home/iree
+RUN git submodule update --init
+RUN apt-get install -y pip curl
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install -r runtime/bindings/python/iree/runtime/build_requirements.txt
+RUN cmake -G Ninja -B ../iree-build/ -S .       \
+    -DIREE_TARGET_BACKEND_CUDA=ON               \
+    -DIREE_HAL_DRIVER_CUDA=ON                   \
+    -DIREE_BUILD_PYTHON_BINDINGS=ON             \
+    -DPython3_EXECUTABLE="$(which python3)"     \
+    .
+# CAUTION: as IREE's docs also mention, you'll need
+# a really strong machine (i.e., many threads, lots
+# of memory) to avoid OOMs.
+RUN cmake --build ../iree-build/
+RUN python3 -m pip install -r integrations/tensorflow/test/requirements.txt
+RUN python3 -m pip install integrations/tensorflow/python_projects/iree_tf
+# Download Mobilenet_v2 expressed in TensorFlow.
+# Follow this tutorial: https://iree.dev/guides/ml-frameworks/tensorflow/#from-savedmodel-on-tensorflow-hub
+WORKDIR /home/models/mobilenet_v2
+RUN curl -L -o /home/models/mobilenet_v2/model.tar.gz https://www.kaggle.com/api/v1/models/google/mobilenet-v2/tensorFlow2/tf2-preview-classification/4/download
+RUN tar -xvf model.tar.gz

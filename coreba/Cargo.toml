@@ -5,24 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-version.workspace = true
+version = "0.62.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow      = { workspace = true }
-indexmap    = { workspace = true }
-ahash       = { workspace = true }
-thiserror   = { workspace = true }
-rand        = { workspace = true }
-once_cell   = { workspace = true }
 itertools   = { workspace = true }
-rand_chacha = "0.3.1"
-sprs        = "0.11.1"
+thiserror   = { workspace = true }
+rayon       = { workspace = true }
+rand        = { workspace = true }
+# plotters    = { workspace = true }
 
 [lib]
-path    = "src/lib/mod.rs"
-
-[[bin]]
-name    = "coreba"
-path    = "src/bin/main.rs"
+path    = "src/v0.3/mod.rs"
