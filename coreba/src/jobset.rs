@@ -4,13 +4,10 @@ use crate::helpe::*;
 /// A successfully returned JobSet is guaranteed to be
 /// compliant with all of `idealloc`'s assumptions. These are:
 /// - no job has zero size
-/// - all current sizes are in agreement with the "allocated" ones
 /// - all deaths are bigger than all births
-/// - all lifetimes have a length of at least 1 unit
+/// - no job has bad alignment (zero, or alloc. size not multiple of i)
 /// - all jobs are original
-/// - no job has zero alignment
 /// - allocated job size is equal or greater to the requested one
-/// - job is original
 ///
 /// This function is the gatekeeper to the rest of the library.
 pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
@@ -20,19 +17,9 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
                 message: String::from("Job with 0 size found!"),
                 culprit: in_elts.remove(idx),
             });
-        } else if j.size != j.req_size {
-            return Err(JobError {
-                message: String::from("Job with disagreeing req/alloc size found!"),
-                culprit: in_elts.remove(idx),
-            });
         } else if j.birth >= j.death {
             return Err(JobError {
                 message: String::from("Job with birth >= death found!"),
-                culprit: in_elts.remove(idx),
-            });
-        } else if j.lifetime() < 1 {
-            return Err(JobError {
-                message: String::from("Job with lifetime < 1 found!"),
                 culprit: in_elts.remove(idx),
             });
         } else if let Some(a) = j.alignment {
@@ -45,10 +32,11 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
             // `idealloc` ensures [natural alignment](https://docs.kernel.org/core-api/unaligned-memory-access.html)
             // at all cases. Natural alignment depends on the block's size.
             // Ensure that that size is a multiple of the *requested* alignment.
-            if j.size < a {
-                j.size = a;
-            } else if j.size % a != 0 {
-                j.size = (j.size / a + 1) * a;
+            if j.size % a != 0 {
+                return Err(JobError {
+                    message: String::from("Job with conflicting size/alignment found!"),
+                    culprit: in_elts.remove(idx),
+                });
             }
         } else if !j.is_original() {
             return Err(JobError {

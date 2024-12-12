@@ -35,7 +35,7 @@ impl Instance {
     /// Creates a new [Instance] from a [JobSet].
     pub fn new(jobs: JobSet) -> Self {
         Self {
-            jobs: Arc::new(jobs),
+            jobs,
             // We will compute the info later, on
             // a need-to basis.
             info: Info {
@@ -133,19 +133,9 @@ impl Instance {
     /// containing jobs of TRUE size up to `ceil`.
     pub fn split_by_height(self, ceil: ByteSteps) -> (Self, Self) {
         let to_split = self.jobs.len();
-        let (small, high): (JobSet, JobSet) = match Arc::try_unwrap(self.jobs) {
-            Ok(v) => {
-                // If the `Arc` can be unwrapped, we save one
-                // round of atomic ref count updates.
-                v.into_iter()
-                    .partition(|j| j.size <= ceil)
-            },
-            Err(v)    => {
-                v.iter()
-                .cloned()
-                .partition(|j| j.size <= ceil)
-            }
-        };
+        let (small, high): (JobSet, JobSet) = self.jobs
+                .into_iter()
+                .partition(|j| j.size <= ceil);
 
         debug_assert!(small.len() + high.len() == to_split);
 
@@ -223,23 +213,12 @@ impl Instance {
     /// Merges `self` with another [Instance].
     pub fn merge_with(mut self, mut other: Self) -> Self {
         let to_join = self.jobs.len() + other.jobs.len();
-        let all: Vec<Arc<Job>> = match Arc::try_unwrap(self.jobs) {
-            Ok(v) => {
-                v.into_iter()
-                    .chain(other.jobs
-                        .iter()
-                        .cloned())
-                    .collect()
-            },
-            Err(arc)    => {
-                arc.iter()
-                .chain(other.jobs.iter())
-                .cloned()
-                .collect()
-            }
-        };
-        self.jobs = Arc::new(all);
         self.info = Info::merge(&mut self, &mut other);
+        let all: Vec<Arc<Job>> = self.jobs
+            .into_iter()
+            .chain(other.jobs.into_iter())
+            .collect();
+        self.jobs = all;
         debug_assert!(self.jobs.len() == to_join);
 
         self
@@ -254,7 +233,7 @@ impl Instance {
             .chain(other.jobs.iter())
             .cloned()
             .collect();
-        self.jobs = Arc::new(all);
+        self.jobs = all;
         self.info = Info::merge(self, &mut other);
 
         debug_assert!(self.jobs.len() == to_join);

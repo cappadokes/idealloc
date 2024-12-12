@@ -135,7 +135,7 @@ pub fn idealloc(
                 total_iters += 1;
                 lives_left -= 1;
                 if lives_left > 0 && best_opt > target_opt {
-                    pre_boxed = rogue(input.clone(), epsilon);
+                    pre_boxed.clone_from(&rogue(input.clone(), epsilon));
                 } else { break; }
             };
 

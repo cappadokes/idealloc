@@ -14,7 +14,7 @@ impl Instance {
     ) -> ByteSteps {
         // Measure unboxing time.
         let row_size = self.jobs[0].size;
-        let loose = get_loose_placement(Arc::into_inner(self.jobs).unwrap(), 0, UnboxCtrl::SameSizes(row_size), &ig.1, dumb_id);
+        let loose = get_loose_placement(self.jobs, 0, UnboxCtrl::SameSizes(row_size), &ig.1, dumb_id);
         do_best_fit(loose, &ig.0, iters_done, makespan_lim, false, start_addr)
     }
 }

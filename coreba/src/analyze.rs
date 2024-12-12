@@ -197,14 +197,23 @@ fn init_rogue(input: Instance, small: f64, big: f64) -> (f64, Instance) {
     let mut best_e = e;
     let mut tries_left = 3;
     let mut best: Instance = input.clone();
+    let mut test: Option<Instance> = None;
     loop {
         if tries_left > 0 {
-            let mut test = rogue(input.clone(), e);
-            let (r, _, _, _) = test.get_safety_info(e);
+            let ptr = if let Some(ref mut c) = test {
+                // Allocation should be avoided here.
+                c.clone_from(&rogue(input.clone(), e));
+                c
+            } else {
+                // Allocation happens here.
+                test = Some(rogue(input.clone(), e));
+                test.as_mut().unwrap()
+            };
+            let (r, _, _, _) = ptr.get_safety_info(e);
             if r < min_r {
                 min_r = r;
                 best_e = e;
-                best = test.clone();
+                best.clone_from(&ptr);
                 tries_left = 3;
             } else {
                 tries_left -= 1;

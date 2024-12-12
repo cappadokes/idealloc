@@ -65,8 +65,6 @@ pub struct Job {
 /// unboxes and performs the actual placement.
 #[derive(Clone)]
 pub struct Instance {
-    // To avoid expensive allocations when cloning at the
-    // beginning of each next iteration.
-    jobs: Arc<JobSet>,
+    jobs: JobSet,
     info: instance::Info,
 }
