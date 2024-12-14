@@ -7,19 +7,14 @@ impl Job {
     /// The new job's contents are sorted by the "big rocks first"
     /// heuristic--that is, by size.
     pub fn new_box(
-        mut contents:   JobSet,
-        height:         ByteSteps,
+        contents:   JobSet,
+        height:     ByteSteps,
     ) -> Self {
         use std::{sync::atomic::AtomicU32, u32};
         static NEXT_ID: AtomicU32 = AtomicU32::new(u32::MAX);
 
         // The box must be high enough to enclose all jobs.
         debug_assert!(get_load(&contents) <= height, "Bad boxing requested");
-
-        contents.sort_unstable_by(|a, b| {
-            b.size.cmp(&a.size)
-                .then(b.lifetime().cmp(&a.lifetime()))
-        });
 
         let mut birth = ByteSteps::MAX;
         let mut death = 0;
@@ -35,6 +30,8 @@ impl Job {
                 originals_boxed += 1;
             } else { originals_boxed += j.originals_boxed; }
         }
+        let id = NEXT_ID.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        assert!(id != u32::MAX / 2 + 1);
         Self {
             size:               height,
             birth,
@@ -43,7 +40,7 @@ impl Job {
             alignment:          None,
             contents:           Some(contents),
             originals_boxed,
-            id:                 NEXT_ID.fetch_sub(1, std::sync::atomic::Ordering::Relaxed),
+            id,
         }
     }
 

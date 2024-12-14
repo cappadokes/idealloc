@@ -31,7 +31,7 @@ fn read_from_path(p: &str, ptype: Parser) -> Result<JobSet, Box<dyn std::error::
     }
 }
 
-const MAX_LIVES: u32 = 3;
+const MAX_LIVES: u32 = 30;
 
 #[test]
 fn run_iree() {

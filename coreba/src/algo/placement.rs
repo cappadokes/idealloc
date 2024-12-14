@@ -20,91 +20,104 @@ impl Instance {
 }
 
 pub fn get_loose_placement(
-    jobs:           JobSet,
+    jobs:               JobSet,
     mut start_offset:   ByteSteps,
     control_state:      UnboxCtrl,
     ig:                 &PlacedJobRegistry,
     dumb_id:            u32,
 ) -> LoosePlacement {
     let mut res = BinaryHeap::new();
-    match control_state {
-        UnboxCtrl::SameSizes(row_height)    => {
-            // If jobs are same-sized, do IGC!
-            // The jobs in each row will be non-overlapping.
-            for row in interval_graph_coloring(jobs) {
-                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
-                start_offset += row_height;
+    if jobs.len() == 1 {
+        let only_job = jobs[0].clone();
+        if only_job.is_original() {
+            if only_job.id != dumb_id {
+                let to_put = ig.get(&only_job.id).unwrap().clone();
+                to_put.offset.set(start_offset);
+                res.push(to_put.clone());
             }
-        },
-        UnboxCtrl::NonOverlapping   => {
-            // If jobs are non-overlapping, they can all be put
-            // at the same offset.
-            for j in jobs {
-                if j.is_original() {
-                    if j.id != dumb_id {
-                        let to_put = ig.get(&j.id).unwrap().clone();
-                        to_put.offset.set(start_offset);
-                        res.push(to_put.clone());
-                    }
-                } else {
-                    res.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown, ig, dumb_id));
+        } else {
+            res.append(&mut get_loose_placement(Arc::unwrap_or_clone(only_job).contents.unwrap(), start_offset, UnboxCtrl::Unknown, ig, dumb_id));
+        }
+    } else {
+        match control_state {
+            UnboxCtrl::SameSizes(row_height)    => {
+                // If jobs are same-sized, do IGC!
+                // The jobs in each row will be non-overlapping.
+                for row in interval_graph_coloring(jobs) {
+                    res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
+                    start_offset += row_height;
                 }
-            }
-        },
-        UnboxCtrl::Unknown  => {
-            // We must find out on our own the jobs' characteristics.
-            // First check if they're all of the same size.
-            let size_probe = jobs[0].size;
-            if jobs.iter()
-                .skip(1)
-                .all(|j| { j.size == size_probe }) {
-                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe), ig, dumb_id));
-            } else {
-                // Then check if they're non-overlapping. We can do that
-                // by demanding that the corresponding events are always
-                // alternating between births and deaths.
-                let mut evts = get_events(&jobs);
-                let mut last_was_birth = false;
-                let mut non_overlapping = true;
-                while let Some(e) = evts.pop() {
-                    match e.evt_t {
-                        EventKind::Birth    => {
-                            if last_was_birth {
-                                non_overlapping = false;
-                                break;
+            },
+            UnboxCtrl::NonOverlapping   => {
+                // If jobs are non-overlapping, they can all be put
+                // at the same offset.
+                for j in jobs {
+                    if j.is_original() {
+                        if j.id != dumb_id {
+                            let to_put = ig.get(&j.id).unwrap().clone();
+                            to_put.offset.set(start_offset);
+                            res.push(to_put.clone());
+                        }
+                    } else {
+                        res.append(&mut get_loose_placement(Arc::unwrap_or_clone(j).contents.unwrap(), start_offset, UnboxCtrl::Unknown, ig, dumb_id));
+                    }
+                }
+            },
+            UnboxCtrl::Unknown  => {
+                // We must find out on our own the jobs' characteristics.
+                // First check if they're all of the same size.
+                let size_probe = jobs[0].size;
+                if jobs.iter()
+                    .skip(1)
+                    .all(|j| { j.size == size_probe }) {
+                        res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::SameSizes(size_probe), ig, dumb_id));
+                } else {
+                    // Then check if they're non-overlapping. We can do that
+                    // by demanding that the corresponding events are always
+                    // alternating between births and deaths.
+                    let mut evts = get_events(&jobs);
+                    let mut last_was_birth = false;
+                    let mut non_overlapping = true;
+                    while let Some(e) = evts.pop() {
+                        match e.evt_t {
+                            EventKind::Birth    => {
+                                if last_was_birth {
+                                    non_overlapping = false;
+                                    break;
+                                }
+                                last_was_birth = true;
+                            },
+                            EventKind::Death    => {
+                                last_was_birth = false;
                             }
-                            last_was_birth = true;
-                        },
-                        EventKind::Death    => {
-                            last_was_birth = false;
+                        }
+                    }
+                    if non_overlapping {
+                        res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
+                    } else {
+                        // Here we know for a fact that the jobs are of multiple sizes, and they're also
+                        // overlapping. One idea is to use "big rocks first". This can be combined with
+                        // clustering (maybe more than one jobs are of the same size and can thus be
+                        // put in the same cluster).
+                        let mut size_buckets: HashMap<ByteSteps, JobSet> = HashMap::new();
+                        for j in jobs {
+                            size_buckets.entry(j.size)
+                                .and_modify(|e| e.push(j.clone()))
+                                .or_insert(vec![j]);
+                        }
+                        for (row_height, size_class) in size_buckets.into_iter()
+                            .sorted_unstable_by(|a, b| { b.0.cmp(&a.0)}) {
+                                let igc_rows = interval_graph_coloring(size_class);
+                                for row in igc_rows {
+                                    res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
+                                    start_offset += row_height;
+                                }
                         }
                     }
                 }
-                if non_overlapping {
-                    res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
-                } else {
-                    // Here we know for a fact that the jobs are of multiple sizes, and they're also
-                    // overlapping. One idea is to use "big rocks first". This can be combined with
-                    // clustering (maybe more than one jobs are of the same size and can thus be
-                    // put in the same cluster).
-                    let mut size_buckets: HashMap<ByteSteps, JobSet> = HashMap::new();
-                    for j in jobs {
-                        size_buckets.entry(j.size)
-                            .and_modify(|e| e.push(j.clone()))
-                            .or_insert(vec![j]);
-                    }
-                    for (row_height, size_class) in size_buckets.into_iter()
-                        .sorted_unstable_by(|a, b| { b.0.cmp(&a.0)}) {
-                            let igc_rows = interval_graph_coloring(size_class);
-                            for row in igc_rows {
-                                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
-                                start_offset += row_height;
-                            }
-                    }
-                }
             }
-        }
-    };
+        };
+    }
 
     res
 }
