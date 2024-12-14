@@ -165,7 +165,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
             max_load += h_max;
             dummy = Some(dummy_job);
         }
-        let mut instance = Instance::new(jobs);
+        let instance = Rc::new(Instance::new(jobs));
         instance.info.set_load(max_load);
         instance.info.set_heights((h_min, h_max));
         let (_, small_end, big_end, _) = instance.ctrl_prelude();
@@ -191,29 +191,21 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
 /// which results in the smallest min/max height ratio.
 /// 
 /// Also returns the winning value's almost-converged instance.
-fn init_rogue(input: Instance, small: f64, big: f64) -> (f64, Instance) {
+fn init_rogue(input: Rc<Instance>, small: f64, big: f64) -> (f64, Rc<Instance>) {
     let mut e = small;
     let mut min_r = f64::MAX;
     let mut best_e = e;
     let mut tries_left = 3;
-    let mut best: Instance = input.clone();
-    let mut test: Option<Instance> = None;
+    let mut best: Rc<Instance> = input.clone();
+    let mut _test = input.clone();
     loop {
         if tries_left > 0 {
-            let ptr = if let Some(ref mut c) = test {
-                // Allocation should be avoided here.
-                c.clone_from(&rogue(input.clone(), e));
-                c
-            } else {
-                // Allocation happens here.
-                test = Some(rogue(input.clone(), e));
-                test.as_mut().unwrap()
-            };
-            let (r, _, _, _) = ptr.get_safety_info(e);
+            _test = rogue(input.clone(), e);
+            let (r, _, _, _) = _test.get_safety_info(e);
             if r < min_r {
                 min_r = r;
                 best_e = e;
-                best.clone_from(&ptr);
+                best = _test;
                 tries_left = 3;
             } else {
                 tries_left -= 1;

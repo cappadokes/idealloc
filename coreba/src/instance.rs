@@ -1,33 +1,33 @@
 use crate::helpe::*;
 
 /// Stores useful information about an [Instance].
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Info {
     // **CAUTION:** we mean the MAXIMUM load!
-    load:           Option<ByteSteps>,
-    min_max_height: Option<(ByteSteps, ByteSteps)>,
+    load:           Cell<Option<ByteSteps>>,
+    min_max_height: Cell<Option<(ByteSteps, ByteSteps)>>,
 }
 
 impl Info {
-    fn merge(this: &mut Instance, that: &mut Instance) -> Self {
+    fn merge(this: &Instance, that: &Instance) -> Self {
         let mut res = Self {
-            load:           None,
-            min_max_height: None,
+            load:           Cell::new(None),
+            min_max_height: Cell::new(None),
         };
 
         let (this_min, this_max) = this.min_max_height();
         let (that_min, that_max) = that.min_max_height();
-        res.min_max_height = Some((this_min.min(that_min), this_max.max(that_max)));
+        res.min_max_height = Cell::new(Some((this_min.min(that_min), this_max.max(that_max))));
 
         res
     }
 
-    pub fn set_load(&mut self, l: ByteSteps) {
-        self.load = Some(l);
+    pub fn set_load(&self, l: ByteSteps) {
+        self.load.set(Some(l));
     }
 
-    pub fn set_heights(&mut self, (min, max): (ByteSteps, ByteSteps)) {
-        self.min_max_height = Some((min, max))
+    pub fn set_heights(&self, (min, max): (ByteSteps, ByteSteps)) {
+        self.min_max_height.set(Some((min, max)))
     }
 }
 
@@ -39,8 +39,8 @@ impl Instance {
             // We will compute the info later, on
             // a need-to basis.
             info: Info {
-                load: None,
-                min_max_height: None,
+                load:           Cell::new(None),
+                min_max_height: Cell::new(None),
             },
         }
     }
@@ -48,18 +48,17 @@ impl Instance {
     /// Splits instance to unit-height buckets, in the
     /// context of Corollary 15. Each bucket is indexed
     /// by the height to be given to Theorem 2.
-    pub fn make_buckets(self, epsilon: f64) -> HashMap<ByteSteps, Instance> {
+    pub fn make_buckets(mut source: Rc<Self>, epsilon: f64) -> HashMap<ByteSteps, Instance> {
         let mut res = HashMap::new();
         let mut prev_floor = 1.0 / (1.0 + epsilon);
         let mut i = 0;
-        let mut source = self;
         while source.jobs.len() > 0 {
             let h = (1.0 + epsilon).powi(i);
             if source.jobs.iter().any(|j| j.size as f64 > prev_floor && j.size as f64 <= h) {
                 let h_split = h.floor() as ByteSteps;
                 let (toward_bucket, rem) = source.split_by_height(h_split);
                 res.insert(h_split, toward_bucket);
-                source = rem;
+                source = Rc::new(rem);
             }
             prev_floor = h;
             i += 1;
@@ -77,7 +76,7 @@ impl Instance {
     ///     (ii)    the implied `μ` = ε / (log`r`)^2
     ///     (iii)   the box size with which Corollary 15 would be called
     ///     (iv)    whether it's safe to mimic Theorem 16
-    pub fn get_safety_info(&mut self, epsilon: f64) -> (f64, f64, f64, bool) {
+    pub fn get_safety_info(&self, epsilon: f64) -> (f64, f64, f64, bool) {
         let (h_min, h_max) = self.min_max_height();
         let (x_1, _, _, lg2r) = self.ctrl_prelude();
         let mu = epsilon / lg2r;
@@ -104,8 +103,8 @@ impl Instance {
 
     /// Returns the minimum and maximum TRUE height over the
     /// instance's jobs.
-    pub fn min_max_height(&mut self) -> (ByteSteps, ByteSteps) {
-        match self.info.min_max_height {
+    pub fn min_max_height(&self) -> (ByteSteps, ByteSteps) {
+        match self.info.min_max_height.get() {
             Some(v) => v,
             None => {
                 let res = self.jobs.iter().fold(
@@ -122,7 +121,7 @@ impl Instance {
                         (min, max)
                     },
                 );
-                self.info.min_max_height = Some(res);
+                self.info.min_max_height.set(Some(res));
 
                 res
             }
@@ -131,10 +130,11 @@ impl Instance {
 
     /// Splits an [Instance] into two new instances, the first
     /// containing jobs of TRUE size up to `ceil`.
-    pub fn split_by_height(self, ceil: ByteSteps) -> (Self, Self) {
+    pub fn split_by_height(&self, ceil: ByteSteps) -> (Self, Self) {
         let to_split = self.jobs.len();
         let (small, high): (JobSet, JobSet) = self.jobs
-                .into_iter()
+                .iter()
+                .cloned()
                 .partition(|j| j.size <= ceil);
 
         debug_assert!(small.len() + high.len() == to_split);
@@ -211,17 +211,20 @@ impl Instance {
     }
 
     /// Merges `self` with another [Instance].
-    pub fn merge_with(mut self, mut other: Self) -> Self {
+    pub fn merge_with(&self, other: Self) -> Rc<Self> {
         let to_join = self.jobs.len() + other.jobs.len();
-        self.info = Info::merge(&mut self, &mut other);
+        let new_info =  Info::merge(&self, &other);
         let all: Vec<Arc<Job>> = self.jobs
-            .into_iter()
+            .iter()
+            .cloned()
             .chain(other.jobs.into_iter())
             .collect();
-        self.jobs = all;
-        debug_assert!(self.jobs.len() == to_join);
+        debug_assert!(all.len() == to_join);
 
-        self
+        Rc::new(Self {
+            jobs:   all,
+            info:   new_info
+        })
     }
 
     /// Does the same as [`Instance::merge_with`], but without consuming
@@ -239,7 +242,7 @@ impl Instance {
         debug_assert!(self.jobs.len() == to_join);
     }
 
-    pub fn ctrl_prelude(&mut self) -> (f64, f64, f64, f64) {
+    pub fn ctrl_prelude(&self) -> (f64, f64, f64, f64) {
         let (h_min, h_max) = self.min_max_height();
         let r = h_max as f64 / h_min as f64;
         let lgr = r.log2();

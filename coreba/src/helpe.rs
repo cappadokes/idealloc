@@ -317,8 +317,8 @@ pub enum AnalysisResult {
 }
 
 pub struct BACtrl {
-    pub input:      Instance,
-    pub pre_boxed:  Instance,
+    pub input:      Rc<Instance>,
+    pub pre_boxed:  Rc<Instance>,
     pub epsilon:    f64,
     pub to_box:     usize,
     pub real_load:  ByteSteps,

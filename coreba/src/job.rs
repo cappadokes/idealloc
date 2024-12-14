@@ -43,7 +43,7 @@ impl Job {
             alignment:          None,
             contents:           Some(contents),
             originals_boxed,
-            id:                 NEXT_ID.fetch_sub(1, std::sync::atomic::Ordering::SeqCst),
+            id:                 NEXT_ID.fetch_sub(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
 

@@ -12,7 +12,7 @@ use crate::helpe::*;
 /// 
 /// This function implements the aforementioned first phase
 /// until boxing's invariants are broken.
-pub fn rogue(mut input: Instance, epsilon: f64) -> Instance {
+pub fn rogue(input: Rc<Instance>, epsilon: f64) -> Rc<Instance> {
     let (r, mu, h, is_safe) = input.get_safety_info(epsilon);
     let target_size = (mu * h).floor() as ByteSteps;
 
@@ -20,7 +20,7 @@ pub fn rogue(mut input: Instance, epsilon: f64) -> Instance {
         // p. 562: "Assume first that lg^2r >= 1 / ε [...]"
         debug_assert!(r.log2().powi(2) >= 1.0 / epsilon);
         let (x_s, x_l) = input.split_by_height(target_size);
-        let small_boxed = c_15(x_s, h, mu);
+        let small_boxed = c_15(Rc::new(x_s), h, mu);
         rogue(x_l.merge_with(small_boxed), epsilon)
     } else {
         // Done.
@@ -29,7 +29,7 @@ pub fn rogue(mut input: Instance, epsilon: f64) -> Instance {
 }
 
 pub fn c_15(
-    input:      Instance,
+    input:      Rc<Instance>,
     h:          f64,
     epsilon:    f64,
 ) -> Instance {
@@ -37,7 +37,7 @@ pub fn c_15(
     // Embarassingly parallel operation. Consolidate
     // a Mutex-protected Instance.
     let res = Arc::new(Mutex::new(Instance::new(vec![])));
-    input.make_buckets(epsilon)
+    Instance::make_buckets(input, epsilon)
         .into_par_iter()
         .for_each(|(h_i, unit_jobs)| {
             debug_assert!(h_i as f64 <= h, "T2 fed with zero H! (ε = {:.2})", epsilon);
