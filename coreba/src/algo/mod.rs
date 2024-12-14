@@ -98,6 +98,7 @@ pub fn idealloc(
             reg,
             mu_lim,
             mut best_opt,
+            hardness,
         }) => {
             let heuristic_opt = best_opt;
             // Initializations...
@@ -140,7 +141,11 @@ pub fn idealloc(
             };
 
             println!(
-                "{:.2}% less fragmentation against heuristic.",
+                "\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nLives hardness:\t\t{:.2}%\nHardness product:\t{:.2}%\n{:.2}% less fragmentation against heuristic.\n",
+                hardness.0 * 100.0,
+                hardness.1 * 100.0,
+                hardness.2 * 100.0,
+                hardness.0 * hardness.1 * hardness.2 * 100.0,
                 (heuristic_opt - best_opt) as f64 / real_load as f64 * 100.0
             );
 

@@ -327,6 +327,7 @@ pub struct BACtrl {
     pub reg:        PlacedJobRegistry,
     pub mu_lim:     f64,
     pub best_opt:   ByteSteps,
+    pub hardness:   (f64, f64, f64),
 }
 
 /// Helper structure for Theorem 2.
