@@ -31,7 +31,7 @@ fn read_from_path(p: &str, ptype: Parser) -> Result<JobSet, Box<dyn std::error::
     }
 }
 
-const MAX_LIVES: u32 = 1;
+const MAX_LIVES: u32 = 30;
 
 #[test]
 fn run_iree_mobilebert() {
@@ -39,7 +39,6 @@ fn run_iree_mobilebert() {
     coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
 }
 
-/*
 #[test]
 fn run_iree() {
     let set = read_from_path("tests/data/iree_first.csv", Parser::IREE).unwrap();
@@ -135,4 +134,3 @@ fn run_minimalloc_k() {
     let set = read_from_path("tests/data/K.1048576.csv", Parser::Minimalloc).unwrap();
     coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
 }
-*/

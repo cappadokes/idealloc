@@ -208,40 +208,56 @@ fn lemma_1(
     // (if enough jobs exist)
     let outer_num = h * (1.0 / e.powi(2)).ceil() as ByteSteps;
     let mut total_jobs = input.len();
-    if total_jobs > outer_num {
-        let mut iter = input.into_iter().peekable();
-        let mut outer = strip_cuttin(&mut iter, true, outer_num);
+    if total_jobs > 2 * outer_num {
+        // Copy jobs into two ordered sets: one for cutting verticals
+        // and another for horizontals.
+        let mut hor_source: IndexMap<u32, Arc<Job>> = input
+            .iter()
+            .cloned()
+            .map(|j| (j.id, j))
+            // Largest deaths go to the end (again, we'll be popping).
+            .sorted_unstable_by(|(_, a), (_, b)| {
+                a.death.cmp(&b.death)
+            })
+            .collect();
+        let mut vert_source: IndexMap<u32, Arc<Job>> = input
+            // Normally sorted by increasing birth.
+            .into_iter()
+            // Reverse, since we'll be popping from the IndexMap.
+            .rev()
+            .map(|j| (j.id, j))
+            .collect();
+        let outer_vert: BinaryHeap<VertStripJob> = strip_cuttin(&mut vert_source, &mut hor_source, outer_num);
         // We know for a fact that there are more jobs to carve.
-        let mut outer_2 = strip_cuttin(&mut iter, false, outer_num);
-
-        if  total_jobs > 2 * outer_num {
-            // The inner strips will contain that many
-            // jobs in total.
-            total_jobs -= 2 * outer_num;
-            // Counter of inner-stripped jobs.
-            let mut inner_jobs = 0;
-            let mut inner_vert: Vec<JobSet> = vec![];
-            let mut inner_hor: Vec<JobSet> = vec![];
-            // Max size of each inner strip.
-            let inner_num = h * (1.0 / e).ceil() as ByteSteps;
-            while inner_jobs < total_jobs {
-                iter = iter.sorted_unstable().peekable();
-                let inner = strip_cuttin(&mut iter, true, inner_num);
-                inner_jobs += inner.len();
-                inner_vert.push(inner);
-                if inner_jobs == total_jobs { break; }
-                let inner_2 = strip_cuttin(&mut iter, false, inner_num);
-                inner_jobs += inner_2.len();
-                inner_hor.push(inner_2);
-            }
-
-            outer.append(&mut outer_2);
-            (Some(strip_boxin(inner_vert, inner_hor, h, h_real)), outer)
-        } else {
-            outer.append(&mut outer_2);
-
-            (None, outer)
+        let outer_hor: BinaryHeap<HorStripJob> = strip_cuttin(&mut hor_source, &mut vert_source, outer_num);
+        // The inner strips will contain that many
+        // jobs in total.
+        total_jobs -= 2 * outer_num;
+        // Counter of inner-stripped jobs.
+        let mut inner_jobs = 0;
+        // Max size of each inner strip.
+        let inner_num = h * (1.0 / e).ceil() as ByteSteps;
+        let mut inner_vert: Vec<BinaryHeap<VertStripJob>> = vec![];
+        let mut inner_hor: Vec<BinaryHeap<HorStripJob>> = vec![];
+        while inner_jobs < total_jobs {
+            let vert_strip: BinaryHeap<VertStripJob> = strip_cuttin(&mut vert_source, &mut hor_source, inner_num);
+            inner_jobs += vert_strip.len();
+            inner_vert.push(vert_strip);
+            if inner_jobs == total_jobs { break; }
+            let hor_strip: BinaryHeap<HorStripJob> = strip_cuttin(&mut hor_source, &mut vert_source, inner_num);
+            inner_jobs += hor_strip.len();
+            inner_hor.push(hor_strip);
         }
+        debug_assert!(vert_source.len() == 0 && hor_source.len() == 0);
+
+        (
+            Some(strip_boxin(inner_vert, inner_hor, h, h_real)),
+            outer_vert.into_iter()
+                .map(|vj| vj.job)
+                .chain(outer_hor.into_iter()
+                        .map(|hj| hj.job))
+                .collect()
+        )
     } else {
         (None, input)
     }

@@ -14,3 +14,4 @@ itertools   = { workspace = true }
 thiserror   = { workspace = true }
 rayon       = { workspace = true }
 rand        = { workspace = true }
+indexmap    = { workspace = true }

@@ -96,22 +96,19 @@ pub fn get_loose_placement(
                         res.append(&mut get_loose_placement(jobs, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
                     } else {
                         // Here we know for a fact that the jobs are of multiple sizes, and they're also
-                        // overlapping. One idea is to use "big rocks first". This can be combined with
-                        // clustering (maybe more than one jobs are of the same size and can thus be
-                        // put in the same cluster).
+                        // overlapping. Split into size classes and treat each one independently.
                         let mut size_buckets: HashMap<ByteSteps, JobSet> = HashMap::new();
                         for j in jobs {
                             size_buckets.entry(j.size)
                                 .and_modify(|e| e.push(j.clone()))
                                 .or_insert(vec![j]);
                         }
-                        for (row_height, size_class) in size_buckets.into_iter()
-                            .sorted_unstable_by(|a, b| { b.0.cmp(&a.0)}) {
-                                let igc_rows = interval_graph_coloring(size_class);
-                                for row in igc_rows {
-                                    res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
-                                    start_offset += row_height;
-                                }
+                        for (row_height, size_class) in size_buckets.into_iter() {
+                            let igc_rows = interval_graph_coloring(size_class);
+                            for row in igc_rows {
+                                res.append(&mut get_loose_placement(row, start_offset, UnboxCtrl::NonOverlapping, ig, dumb_id));
+                                start_offset += row_height;
+                            }
                         }
                     }
                 }
