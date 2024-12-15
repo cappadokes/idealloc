@@ -145,7 +145,7 @@ impl Instance {
     /// Splits an [Instance] into multiple new instances, the first
     /// containing jobs that are live in at least one moment of those
     /// in `pts`.
-    pub fn split_by_liveness(self, pts: &BTreeSet<ByteSteps>) -> (JobSet, HashMap<ByteSteps, Instance>) {
+    pub fn split_by_liveness(mut self, pts: &BTreeSet<ByteSteps>) -> (JobSet, HashMap<ByteSteps, Instance>) {
         let mut x_is_base: HashMap<ByteSteps, Vec<Arc<Job>>> = HashMap::new();
         let mut live = vec![];
 
@@ -153,10 +153,15 @@ impl Instance {
             .map(|x| *x)
             .enumerate()
             .peekable();
+        /*
         let mut jobs_iter = self.jobs
             .iter()
             .sorted_unstable()
             .peekable();
+        */
+        let jobs_slice = &mut self.jobs[..];
+        jobs_slice.sort_unstable();
+        let mut idx = 0;
 
         'points: loop {
             // Assumption: no remaining, i.e., non-dealt-with Job
@@ -166,7 +171,8 @@ impl Instance {
                 Some((q_next, t_q_next))    => {
                     if *q_next == pts.len() - 1 {
                         // We are at the last segment. Everything is a X_i.
-                        while let Some(j) = jobs_iter.next() {
+                        while let Some(j) = jobs_slice.get(idx) {
+                            idx += 1;
                             x_is_base.entry(q)
                                 .and_modify(|v| v.push(j.clone()))
                                 .or_insert(vec![j.clone()]);
@@ -176,14 +182,14 @@ impl Instance {
                         // We will deal with as many jobs as we can without breaking
                         // our assumption. Then we'll move on to the next t_q.
                         loop {
-                            if let Some(j) = jobs_iter.peek() {
+                            if let Some(j) = jobs_slice.get(idx) {
                                 if j.lives_within(&(t_q, *t_q_next)) {
-                                    let j = jobs_iter.next().unwrap();
+                                    idx += 1;
                                     x_is_base.entry(q)
                                         .and_modify(|v| v.push(j.clone()))
                                         .or_insert(vec![j.clone()]);
                                 } else if j.is_live_at(*t_q_next) {
-                                    let j = jobs_iter.next().unwrap();
+                                    idx += 1;
                                     live.push(j.clone());
                                 } else {
                                     continue 'points;
