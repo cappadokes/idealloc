@@ -417,7 +417,7 @@ impl Object {
 
         if let ReqType::ReAlloc(old_add, _) = inciting_req.rtype {
             if old_add != 0 {
-                let mut to_retire = world.jobs.remove(&old_add).unwrap();
+                let mut to_retire = world.jobs.swap_remove(&old_add).unwrap();
                 to_retire.death = world.time;
                 assert!(world
                     .all_objects
@@ -428,7 +428,7 @@ impl Object {
 
         if let ReqType::Free(old_add) = inciting_req.rtype {
             if old_add != 0 {
-                let mut to_retire = world.jobs.remove(&old_add).unwrap();
+                let mut to_retire = world.jobs.swap_remove(&old_add).unwrap();
                 to_retire.death = world.time;
                 assert!(world
                     .all_objects

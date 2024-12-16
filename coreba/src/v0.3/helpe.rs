@@ -1,3 +1,4 @@
+use std::io::Read;
 pub use std::{
     rc::Rc,
     sync::{Arc, Mutex},
@@ -43,6 +44,7 @@ pub type JobSet = Vec<Arc<Job>>;
 ///
 /// The user can implement their own types as needed.
 pub trait JobGen<T> {
+    fn new(path: PathBuf) -> Self;
     /// Either a set of jobs is successfully returned, or some
     /// arbitrary type that implements [std::error::Error].
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>>;
@@ -67,21 +69,74 @@ pub struct JobError {
 // To write your own interface, simply make sure that it
 // satisfies the `JobGen` trait.
 
+pub struct PLCParser {
+    pub path: PathBuf,
+}
+
+pub const PLC_FIELDS_NUM: usize = 8;
+
+impl JobGen<&[u8; 8 * PLC_FIELDS_NUM]> for PLCParser {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path
+        }
+    }
+    fn gen_single(&self, d: &[u8; 8 * PLC_FIELDS_NUM], _: u32) -> Job {
+        let mut words_read = 0;
+        let mut baby_job = Job::new();
+        while words_read < PLC_FIELDS_NUM {
+            let mut word_buffer: [u8; 8] = [0; 8];
+            for byte_count in 0..8 {
+                word_buffer[byte_count] = d[words_read * 8 + byte_count];
+            }
+            words_read += 1;
+            let data = usize::from_be_bytes(word_buffer);
+            match words_read {
+                1   => { baby_job.id = data.try_into().unwrap(); },
+                2   => { baby_job.birth = data; },
+                3   => { baby_job.death = data; },
+                4   => { baby_job.size = data; },
+                5   => {},
+                6   => {},
+                7   => { if data != 0 { baby_job.alignment = Some(data); }},
+                8   => { baby_job.req_size = data; },
+                _   => { panic!("Unreachable state while parsing PLC."); }
+            }
+        }
+
+        baby_job
+    }
+    fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
+        let path = self.path.as_path();
+        let mut res = vec![];
+        match std::fs::metadata(path) {
+            Ok(_)   => {
+                let fd = std::fs::File::open(path)?;
+                let mut reader = BufReader::new(fd);
+                let mut buffer: [u8; 8 * PLC_FIELDS_NUM] = [0; 8 * PLC_FIELDS_NUM];
+                while let Ok(_) = reader.read_exact(&mut buffer) {
+                    res.push(self.gen_single(&buffer, 62));
+                }
+            },
+            Err(e)  => { return Err(Box::new(e)); }
+        }
+
+        Ok(res)
+    }
+}
+
 /// We adopt [`minimalloc`'s CSV](https://github.com/google/minimalloc)
 /// as the most standard format.
 pub struct MinimalloCSVParser {
     pub path: PathBuf,
 }
 
-impl MinimalloCSVParser {
-    pub fn new(path: PathBuf) -> Self {
+impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
+    fn new(path: PathBuf) -> Self {
         Self {
             path,
         }
     }
-}
-
-impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let mut res = vec![];
         let mut data_buf: [ByteSteps; 3] = [0; 3];
@@ -141,15 +196,12 @@ pub struct IREECSVParser {
     dirty:  PathBuf,
 }
 
-impl IREECSVParser {
-    pub fn new(dirty: PathBuf) -> Self {
+impl JobGen<Job> for IREECSVParser {
+    fn new(dirty: PathBuf) -> Self {
         Self {
             dirty,
         }
     }
-}
-
-impl JobGen<Job> for IREECSVParser {
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let helper = MinimalloCSVParser::new(self.dirty.clone());
         let dirty_jobs: JobSet = helper.read_jobs()

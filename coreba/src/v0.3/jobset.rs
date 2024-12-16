@@ -20,11 +20,6 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
                 message: String::from("Job with 0 size found!"),
                 culprit: in_elts.remove(idx),
             });
-        } else if j.size != j.req_size {
-            return Err(JobError {
-                message: String::from("Job with disagreeing req/alloc size found!"),
-                culprit: in_elts.remove(idx),
-            });
         } else if j.birth >= j.death {
             return Err(JobError {
                 message: String::from("Job with birth >= death found!"),
