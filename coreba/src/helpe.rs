@@ -1,4 +1,3 @@
-use std::io::Read;
 pub use std::{
     rc::Rc,
     sync::{Arc, Mutex},
@@ -138,6 +137,7 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
             path,
         }
     }
+  
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let mut res = vec![];
         let mut data_buf: [ByteSteps; 3] = [0; 3];
@@ -203,6 +203,7 @@ impl JobGen<Job> for IREECSVParser {
             dirty,
         }
     }
+
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let helper = MinimalloCSVParser::new(self.dirty.clone());
         let dirty_jobs: JobSet = helper.read_jobs()

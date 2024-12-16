@@ -33,7 +33,6 @@ fn run_hello_plc() {
     coreba::algo::main_loop(set, MAX_FRAG, 0);
 }
 
-/*
 #[test]
 fn run_iree() {
     let set = read_from_path::<IREECSVParser, Job>("tests/data/iree_first.csv").unwrap();

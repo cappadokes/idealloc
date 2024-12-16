@@ -15,6 +15,7 @@ impl Job {
             id:                 0,
         }
     }
+  
     /// Creates a by-guarantee valid box containing
     /// the jobs in `contents`.
     /// 
