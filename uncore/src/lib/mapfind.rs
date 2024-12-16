@@ -231,7 +231,7 @@ pub fn find_mapping(add: *mut void) -> (usize, usize) {
     static mut CHEAT_IDX: usize = 0;
 
     unsafe {
-        let size = malloc_usable_size(add);
+        let size = malloc_usable_size(add) + 8;
         let mut runner = 0;
         let mut min_idx = runner;
         let mut min_val = usize::MAX;

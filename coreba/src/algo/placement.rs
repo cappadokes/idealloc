@@ -15,7 +15,7 @@ impl Instance {
         // Measure unboxing time.
         let row_size = self.jobs[0].size;
         let loose = get_loose_placement(self.jobs, 0, UnboxCtrl::SameSizes(row_size), &ig.1, dumb_id);
-        do_best_fit(loose, &ig.0, iters_done, makespan_lim, false, start_addr)
+        do_best_fit(loose, &ig.0, iters_done, makespan_lim, true, start_addr)
     }
 }
 

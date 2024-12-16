@@ -135,7 +135,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 &ig,
                 0, 
                 ByteSteps::MAX,
-                false,
+                true,
                 0);
         // Interference graph has been built, max load has been computed.
         // BA needs to run, so we must compute epsilon, initialize rogue, etc.
@@ -164,13 +164,13 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
             });
         let size_std = (height_squared_devs / (to_box as f64)).sqrt();
         let life_std = (life_squared_devs / (to_box as f64)).sqrt();
-        let h_hardness = size_std / (h_max as f64 - h_mean);
-        let life_hardness = life_std / (l_max as f64 - life_mean);
+        let h_hardness = size_std / h_mean * 100.0;
+        let life_hardness = life_std / life_mean * 100.0;
         let double_num_conflicts = ig.values()
             .fold(0, |s, js| s + js.len());
         assert!(double_num_conflicts % 2 == 0);
         let num_two_combos = to_box * (to_box - 1) / 2;
-        let conflict_hardness = (double_num_conflicts / 2) as f64 / num_two_combos as f64;
+        let conflict_hardness = (double_num_conflicts / 2) as f64 / num_two_combos as f64 * 100.0;
 
         if small_end >= big_end {
             // Demanding that small < end leads to the condition:
