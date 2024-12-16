@@ -2,30 +2,18 @@ use coreba::*;
 
 const MAX_FRAG: f64 = 1.0;
 
-enum Parser {
-    Minimalloc,
-    IREE,
-}
-
 fn get_crate_root() -> Result<PathBuf, std::env::VarError> {
     Ok(PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?))
 }
 
-fn read_from_path(p: &str, ptype: Parser) -> Result<JobSet, Box<dyn std::error::Error>> {
-    let mut csv_path = get_crate_root()?;
-    csv_path.push(p);
-    if let Parser::Minimalloc = ptype {
-        let parser = MinimalloCSVParser::new(csv_path);
-        let jobs = parser.read_jobs()?;
-        assert!(jobs.len() > 0);
-        let set = coreba::jobset::init(jobs)?;
-
-        Ok(set)
-    } else {
-        let parser = IREECSVParser::new(csv_path);
-        let jobs = parser.read_jobs()?;
-        assert!(jobs.len() > 0);
-        let set = coreba::jobset::init(jobs)?;
+fn read_from_path<T, B>(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> 
+where T: JobGen<B> {
+    let mut file_path = get_crate_root()?;
+    file_path.push(p);
+    let parser = T::new(file_path);
+    let jobs = parser.read_jobs()?;
+    assert!(jobs.len() > 0);
+    let set = coreba::jobset::init(jobs)?;
 
         Ok(set)
     }
@@ -40,9 +28,15 @@ fn run_iree_mobilebert() {
 }
 
 #[test]
+fn run_hello_plc() {
+    let set = read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>("tests/data/hi_again.plc").unwrap();
+    coreba::algo::main_loop(set, MAX_FRAG, 0);
+}
+
+#[test]
 fn run_iree() {
-    let set = read_from_path("tests/data/iree_first.csv", Parser::IREE).unwrap();
-    coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
+    let set = read_from_path::<IREECSVParser, Job>("tests/data/iree_first.csv").unwrap();
+    coreba::algo::main_loop(set, MAX_FRAG, 0);
 }
 
 #[test]

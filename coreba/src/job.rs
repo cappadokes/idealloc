@@ -1,6 +1,21 @@
 use crate::helpe::*;
 
 impl Job {
+    /// Creates a dummy [Job], to be filled
+    /// with meaningful data from someone else.
+    pub fn new() -> Self {
+        Self {
+            birth:              0,
+            death:              0,
+            size:               0,
+            req_size:           0,
+            alignment:          None,
+            contents:           None,
+            originals_boxed:    0,
+            id:                 0,
+        }
+    }
+  
     /// Creates a by-guarantee valid box containing
     /// the jobs in `contents`.
     /// 
