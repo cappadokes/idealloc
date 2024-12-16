@@ -15,27 +15,27 @@ use self::boxing::{
     rogue,
 };
 
-/// `idealloc` is, in its non-trivial case, probabilistic.
-/// It tries different placements again and again in a loop
-/// and picks the best one. This constant controls the
-/// maximum allowable number of iterations.
-/// 
-/// To be replaced later with a more sophisticated value.
-pub const MAX_LIVES: u32 = 1;
-
 /// Assigns proper offsets to each buffer in `JobSet`,
 /// so that the resulting memory fragmentation is at
 /// most (`worst_case_frag` - 1.0) * 100.0 percent.
 /// Address space is assumed to start at `start_address`.
 /// All offsets are relative to that one.
 /// 
+/// `idealloc` is, in its non-trivial case, probabilistic.
+/// It tries different placements again and again in a loop
+/// and picks the best one. This constant controls the maximum
+/// number of iterations allowed to `idealloc` to outperform its
+/// last best placement. The *total* number of iterations is
+/// thus stochastic.
+/// 
 /// Returns the placement itself, and the corresponding
 /// makespan. If worst-case-fragmentation was exceeded,
 /// the immediately next best achieved placement is returned.
-pub fn main_loop(
+pub fn idealloc(
     original_input:     JobSet,
     worst_case_frag:    f64,
     start_address:      ByteSteps,
+    max_lives:          u32,
 ) -> (PlacedJobSet, ByteSteps) {
     // Measure total allocation time.
     let total_start = Instant::now();
@@ -88,7 +88,7 @@ pub fn main_loop(
             )
         },
         AnalysisResult::NeedsBA(BACtrl {
-            mut input,
+            input,
             mut pre_boxed,
             to_box,
             epsilon,
@@ -98,9 +98,11 @@ pub fn main_loop(
             reg,
             mu_lim,
             mut best_opt,
+            hardness,
         }) => {
+            let heuristic_opt = best_opt;
             // Initializations...
-            let mut lives_left = MAX_LIVES;
+            let mut lives_left = max_lives;
             let mut total_iters = 1;
             let target_opt = (real_load as f64 * worst_case_frag).floor() as ByteSteps;
             let dumb_id = if let Some(ref dum) = dummy {
@@ -129,7 +131,7 @@ pub fn main_loop(
                 if current_opt < best_opt {
                     debug_assert!(placement_is_valid(&ig_reg));
                     best_opt = current_opt;
-                    lives_left = MAX_LIVES + 1;
+                    lives_left = max_lives + 1;
                 }
                 total_iters += 1;
                 lives_left -= 1;
@@ -137,6 +139,15 @@ pub fn main_loop(
                     pre_boxed = rogue(input.clone(), epsilon);
                 } else { break; }
             };
+
+            println!(
+                "\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nLives hardness:\t\t{:.2}%\nHardness product:\t{:.2}%\n{:.2}% less fragmentation against heuristic.\n",
+                hardness.0 * 100.0,
+                hardness.1 * 100.0,
+                hardness.2 * 100.0,
+                hardness.0 * hardness.1 * hardness.2 * 100.0,
+                (heuristic_opt - best_opt) as f64 / real_load as f64 * 100.0
+            );
 
             (
                 real_load,
@@ -153,7 +164,11 @@ pub fn main_loop(
         total_start.elapsed().as_micros()
     );
 
-    println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", best_opt, target_load, (best_opt - target_load) as f64 / target_load as f64 * 100.0);
+    println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", 
+        best_opt, 
+        target_load, 
+        (best_opt - target_load) as f64 / target_load as f64 * 100.0
+    );
 
     (placement, best_opt)
 }

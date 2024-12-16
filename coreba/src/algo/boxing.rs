@@ -12,7 +12,7 @@ use crate::helpe::*;
 /// 
 /// This function implements the aforementioned first phase
 /// until boxing's invariants are broken.
-pub fn rogue(mut input: Instance, epsilon: f64) -> Instance {
+pub fn rogue(input: Rc<Instance>, epsilon: f64) -> Rc<Instance> {
     let (r, mu, h, is_safe) = input.get_safety_info(epsilon);
     let target_size = (mu * h).floor() as ByteSteps;
 
@@ -20,7 +20,7 @@ pub fn rogue(mut input: Instance, epsilon: f64) -> Instance {
         // p. 562: "Assume first that lg^2r >= 1 / ε [...]"
         debug_assert!(r.log2().powi(2) >= 1.0 / epsilon);
         let (x_s, x_l) = input.split_by_height(target_size);
-        let small_boxed = c_15(x_s, h, mu);
+        let small_boxed = c_15(Rc::new(x_s), h, mu);
         rogue(x_l.merge_with(small_boxed), epsilon)
     } else {
         // Done.
@@ -29,7 +29,7 @@ pub fn rogue(mut input: Instance, epsilon: f64) -> Instance {
 }
 
 pub fn c_15(
-    input:      Instance,
+    input:      Rc<Instance>,
     h:          f64,
     epsilon:    f64,
 ) -> Instance {
@@ -37,7 +37,7 @@ pub fn c_15(
     // Embarassingly parallel operation. Consolidate
     // a Mutex-protected Instance.
     let res = Arc::new(Mutex::new(Instance::new(vec![])));
-    input.make_buckets(epsilon)
+    Instance::make_buckets(input, epsilon)
         .into_par_iter()
         .for_each(|(h_i, unit_jobs)| {
             debug_assert!(h_i as f64 <= h, "T2 fed with zero H! (ε = {:.2})", epsilon);
@@ -104,9 +104,6 @@ fn t_2(
         }
     }
 
-    // We want to apply IGC to `all_unresolved`. We're going to
-    // use traversal, so the jobs must be sorted.
-    all_unresolved.sort_unstable();
     let igc_rows = interval_graph_coloring(all_unresolved);
 
     // The produced rows implicitly generate "gaps", which will be used
@@ -122,13 +119,11 @@ fn t_2(
         row_count += 1;
         jobs_buf.append(&mut row);
         if row_count % h == 0 {
-            jobs_buf.sort_unstable();
             res_jobs.push(Arc::new(Job::new_box(jobs_buf, h_real)));
             jobs_buf = vec![];
         }
     }
     if !jobs_buf.is_empty() {
-        jobs_buf.sort_unstable();
         res_jobs.push(Arc::new(Job::new_box(jobs_buf, h_real)));
     }
 
@@ -213,40 +208,56 @@ fn lemma_1(
     // (if enough jobs exist)
     let outer_num = h * (1.0 / e.powi(2)).ceil() as ByteSteps;
     let mut total_jobs = input.len();
-    if total_jobs > outer_num {
-        let mut iter = input.into_iter().peekable();
-        let mut outer = strip_cuttin(&mut iter, true, outer_num);
+    if total_jobs > 2 * outer_num {
+        // Copy jobs into two ordered sets: one for cutting verticals
+        // and another for horizontals.
+        let mut hor_source: IndexMap<u32, Arc<Job>> = input
+            .iter()
+            .cloned()
+            .map(|j| (j.id, j))
+            // Largest deaths go to the end (again, we'll be popping).
+            .sorted_unstable_by(|(_, a), (_, b)| {
+                a.death.cmp(&b.death)
+            })
+            .collect();
+        let mut vert_source: IndexMap<u32, Arc<Job>> = input
+            // Normally sorted by increasing birth.
+            .into_iter()
+            // Reverse, since we'll be popping from the IndexMap.
+            .rev()
+            .map(|j| (j.id, j))
+            .collect();
+        let outer_vert: BinaryHeap<VertStripJob> = strip_cuttin(&mut vert_source, &mut hor_source, outer_num);
         // We know for a fact that there are more jobs to carve.
-        let mut outer_2 = strip_cuttin(&mut iter, false, outer_num);
-
-        if  total_jobs > 2 * outer_num {
-            // The inner strips will contain that many
-            // jobs in total.
-            total_jobs -= 2 * outer_num;
-            // Counter of inner-stripped jobs.
-            let mut inner_jobs = 0;
-            let mut inner_vert: Vec<JobSet> = vec![];
-            let mut inner_hor: Vec<JobSet> = vec![];
-            // Max size of each inner strip.
-            let inner_num = h * (1.0 / e).ceil() as ByteSteps;
-            while inner_jobs < total_jobs {
-                iter = iter.sorted_unstable().peekable();
-                let inner = strip_cuttin(&mut iter, true, inner_num);
-                inner_jobs += inner.len();
-                inner_vert.push(inner);
-                if inner_jobs == total_jobs { break; }
-                let inner_2 = strip_cuttin(&mut iter, false, inner_num);
-                inner_jobs += inner_2.len();
-                inner_hor.push(inner_2);
-            }
-
-            outer.append(&mut outer_2);
-            (Some(strip_boxin(inner_vert, inner_hor, h, h_real)), outer)
-        } else {
-            outer.append(&mut outer_2);
-
-            (None, outer)
+        let outer_hor: BinaryHeap<HorStripJob> = strip_cuttin(&mut hor_source, &mut vert_source, outer_num);
+        // The inner strips will contain that many
+        // jobs in total.
+        total_jobs -= 2 * outer_num;
+        // Counter of inner-stripped jobs.
+        let mut inner_jobs = 0;
+        // Max size of each inner strip.
+        let inner_num = h * (1.0 / e).ceil() as ByteSteps;
+        let mut inner_vert: Vec<BinaryHeap<VertStripJob>> = vec![];
+        let mut inner_hor: Vec<BinaryHeap<HorStripJob>> = vec![];
+        while inner_jobs < total_jobs {
+            let vert_strip: BinaryHeap<VertStripJob> = strip_cuttin(&mut vert_source, &mut hor_source, inner_num);
+            inner_jobs += vert_strip.len();
+            inner_vert.push(vert_strip);
+            if inner_jobs == total_jobs { break; }
+            let hor_strip: BinaryHeap<HorStripJob> = strip_cuttin(&mut hor_source, &mut vert_source, inner_num);
+            inner_jobs += hor_strip.len();
+            inner_hor.push(hor_strip);
         }
+        debug_assert!(vert_source.len() == 0 && hor_source.len() == 0);
+
+        (
+            Some(strip_boxin(inner_vert, inner_hor, h, h_real)),
+            outer_vert.into_iter()
+                .map(|vj| vj.job)
+                .chain(outer_hor.into_iter()
+                        .map(|hj| hj.job))
+                .collect()
+        )
     } else {
         (None, input)
     }

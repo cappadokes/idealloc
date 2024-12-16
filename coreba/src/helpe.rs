@@ -14,6 +14,7 @@ pub use std::{
 pub use thiserror::Error;
 pub use itertools::Itertools;
 pub use rayon::prelude::*;
+pub use indexmap::IndexMap;
 
 pub use crate::{Instance, Job,
     jobset::*,
@@ -292,26 +293,23 @@ impl PlacedJob {
         self.offset.get() + self.descr.size
     }
 
-    /// Returns the next biggest offset that satisfies
-    /// the job's alignment requirements, taking into
-    /// consideration the address space's base address.
+    /// Returns a [naturally aligned](https://docs.kernel.org/core-api/unaligned-memory-access.html)
+    /// offset for the job.
     pub fn get_corrected_offset(
         &self, 
         start_addr: ByteSteps,
         cand:       ByteSteps
     ) -> ByteSteps {
-        // Zero is aligned with everything.
-        if cand == 0 { cand }
-        else {
-            if let Some(a) = self.descr.alignment {
-                let test_addr = start_addr + cand;
-                if test_addr < a { a }
-                else if test_addr % a != 0 {
-                    (test_addr / a + 1) * a - start_addr
-                } else { cand }
-            }
-            // No alignment needed!
-            else { cand }
+        let job_size = self.descr.size;
+        let cand_addr = start_addr + cand;
+        if cand_addr == 0 || cand_addr % job_size == 0 { cand }
+        else if cand_addr < job_size {
+            // Offset is the job size itself.
+            job_size - start_addr
+        } else {
+            // Initial candidate address is bigger than the
+            // job size, but not a multiple of it.
+            (cand_addr / job_size + 1) * job_size - start_addr
         }
     }
 }
@@ -372,8 +370,8 @@ pub enum AnalysisResult {
 }
 
 pub struct BACtrl {
-    pub input:      Instance,
-    pub pre_boxed:  Instance,
+    pub input:      Rc<Instance>,
+    pub pre_boxed:  Rc<Instance>,
     pub epsilon:    f64,
     pub to_box:     usize,
     pub real_load:  ByteSteps,
@@ -382,6 +380,7 @@ pub struct BACtrl {
     pub reg:        PlacedJobRegistry,
     pub mu_lim:     f64,
     pub best_opt:   ByteSteps,
+    pub hardness:   (f64, f64, f64),
 }
 
 /// Helper structure for Theorem 2.
@@ -467,18 +466,17 @@ impl Ord for Event {
         // We're using a BinaryHeap, which is
         // a max-priority queue. We want a min-one
         // and so we're reversing the order of `cmp`.
-        if self.time != other.time {
-            other.time.cmp(&self.time)
-        } else {
-            if self.evt_t == other.evt_t {
-                std::cmp::Ordering::Equal
-            } else {
-                match self.evt_t {
-                    EventKind::Birth    => { std::cmp::Ordering::Less },
-                    EventKind::Death    => { std::cmp::Ordering::Greater },
-                }
-            }
-        }
+        other.time.cmp(&self.time)
+            .then(
+                if self.evt_t == other.evt_t {
+                    std::cmp::Ordering::Equal
+                } else {
+                    match self.evt_t {
+                        // Prioritize deaths over births.
+                        EventKind::Birth    => { std::cmp::Ordering::Less },
+                        EventKind::Death    => { std::cmp::Ordering::Greater },
+                    }
+                })
     }
 }
 impl PartialOrd for Event {
@@ -492,18 +490,96 @@ impl PartialEq for Event {
     }
 }
 
+/// Helper struct for Lemma 1. "Vertical strips" are going
+/// to be stored into [BinaryHeap]s. Since [BinaryHeap] is
+/// a max-heap, we compare 2 jobs' deaths to order them.
+#[derive(Eq)]
+pub struct VertStripJob {
+    pub job:    Arc<Job>,
+}
+
+impl New for VertStripJob {
+    fn new(job: Arc<Job>) -> Self {
+        Self { job }
+    }
+    fn get_inner_job(self) -> Arc<Job> {
+        self.job
+    }
+}
+
+impl Ord for VertStripJob {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.job
+            .death
+            .cmp(&other.job.death)
+    }
+}
+
+impl PartialOrd for VertStripJob {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for VertStripJob {
+    fn eq(&self, other: &Self) -> bool {
+        self.job == other.job
+    }
+}
+
+pub trait New {
+    fn new(src: Arc<Job>) -> Self;
+    fn get_inner_job(self) -> Arc<Job>;
+}
+
+/// Helper struct for Lemma 1. "Vertical strips" are going
+/// to be stored into [BinaryHeap]s. Since [BinaryHeap] is
+/// a max-heap, we compare 2 jobs in reverse to order them.
+#[derive(Eq)]
+pub struct HorStripJob {
+    pub job:    Arc<Job>,
+}
+
+impl New for HorStripJob {
+    fn new(job: Arc<Job>) -> Self {
+        Self { job }
+    }
+    fn get_inner_job(self) -> Arc<Job> {
+        self.job
+    }
+}
+
+impl Ord for HorStripJob {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.job
+            .cmp(&self.job)
+    }
+}
+
+impl PartialOrd for HorStripJob {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for HorStripJob {
+    fn eq(&self, other: &Self) -> bool {
+        self.job == other.job
+    }
+}
+
 /// Helper function for Lemma 1. Splits all inner
 /// strips into boxes containing `group_size` jobs each.
 /// 
 /// The real size of each box is `box_size`.
 pub fn strip_boxin(
-    verticals:      Vec<JobSet>,
-    horizontals:    Vec<JobSet>,
+    verticals:      Vec<BinaryHeap<VertStripJob>>,
+    horizontals:    Vec<BinaryHeap<HorStripJob>>,
     group_size:     ByteSteps,
     box_size:       ByteSteps,
 ) -> JobSet {
-    let mut res_set = strip_box_core(verticals, group_size, box_size, true);
-    res_set.append(&mut strip_box_core(horizontals, group_size, box_size, false));
+    let mut res_set = strip_box_core(verticals, group_size, box_size);
+    res_set.append(&mut strip_box_core(horizontals, group_size, box_size));
 
     res_set
 }
@@ -512,38 +588,25 @@ pub fn strip_boxin(
 /// of a single strip into boxes containing `group_size` jobs each.
 /// 
 /// The real size of each box is `box_size`.
-fn strip_box_core(
-    strips:         Vec<JobSet>,
+fn strip_box_core<T>(
+    strips:         Vec<BinaryHeap<T>>,
     group_size:     ByteSteps,
     box_size:       ByteSteps,
-    vertical:       bool,
-) -> JobSet {
+) -> JobSet where T: Ord + New {
     let mut res: JobSet = vec![];
-    for strip in strips {
+    let mut buf: JobSet = vec![];
+    for mut strip in strips {
         // We must repeatedly divide each strip in groups
         // of size `group_size` and box them.
-        //
-        // We shall make reuse of `strip_cuttin`.
-        let mut iter = if vertical {
-            strip.into_iter()
-                // Whether the strip is a vertical or horizontal one
-                // designates the sorting before selection.
-                .sorted_unstable_by(|a, b| { b.death.cmp(&a.death) })
-                .peekable()
-        } else {
-            strip.into_iter()
-                .sorted_unstable()
-                .peekable()
-        };
-        while iter.peek().is_some() {
-            let mut to_cut = strip_cuttin(&mut iter, true, group_size);
-            to_cut.sort_unstable();
-            res.push(Arc::new(
-                Job::new_box(
-                    to_cut,
-                     box_size)
-                    )
-                );
+        let mut stripped = 0;
+        while !strip.is_empty() {
+            buf.push(strip.pop().unwrap().get_inner_job());
+            stripped += 1;
+            if stripped == group_size || strip.is_empty() {
+                res.push(Arc::new(Job::new_box(buf, box_size)));
+                buf = vec![];
+                stripped = 0;
+            }
         }
     };
 
@@ -552,31 +615,19 @@ fn strip_box_core(
 
 /// Helper function for Lemma 1. Selects `to_take`
 /// jobs from a given iterator.
-pub fn strip_cuttin(
-    iter:       &mut Peekable<std::vec::IntoIter<Arc<Job>>>,
-    is_sorted:  bool,
+pub fn strip_cuttin<T>(
+    source:     &mut IndexMap<u32, Arc<Job>>,
+    mirror:     &mut IndexMap<u32, Arc<Job>>,
     to_take:    ByteSteps,
-) -> JobSet {
-    if !is_sorted {
-        // Sort remaining jobs by decreasing
-        // death.
-        *iter = iter.sorted_unstable_by(|a, b| {
-            b.death.cmp(&a.death)
-        }).peekable();
-    }
+) -> BinaryHeap<T> where T: Ord + New {
+    let mut res: BinaryHeap<T> = BinaryHeap::new();
     let mut stripped = 0;
-    // This vector collects the outer vertical/horizontal strip jobs.
-    let mut res = vec![];
-
-    // This condition helps us check if we've run
-    // out of jobs.
-    while let Some(j) = iter.next() {
+    while stripped < to_take && !source.is_empty() {
+        let (id, cut_job) = source.pop().unwrap();
+        mirror.shift_remove(&id).unwrap();
+        res.push(New::new(cut_job));
         stripped += 1;
-        res.push(j);
-        // This condition helps check if we're
-        // done with the outer vert. strip.
-        if stripped == to_take { break; }
-    };
-    
+    }
+
     res
 }

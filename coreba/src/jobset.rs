@@ -4,13 +4,10 @@ use crate::helpe::*;
 /// A successfully returned JobSet is guaranteed to be
 /// compliant with all of `idealloc`'s assumptions. These are:
 /// - no job has zero size
-/// - all current sizes are in agreement with the "allocated" ones
 /// - all deaths are bigger than all births
-/// - all lifetimes have a length of at least 1 unit
+/// - no job has bad alignment (zero, or alloc. size not multiple of i)
 /// - all jobs are original
-/// - no job has zero alignment
 /// - allocated job size is equal or greater to the requested one
-/// - job is original
 ///
 /// This function is the gatekeeper to the rest of the library.
 pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
@@ -25,15 +22,19 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
                 message: String::from("Job with birth >= death found!"),
                 culprit: in_elts.remove(idx),
             });
-        } else if j.lifetime() < 1 {
-            return Err(JobError {
-                message: String::from("Job with lifetime < 1 found!"),
-                culprit: in_elts.remove(idx),
-            });
         } else if let Some(a) = j.alignment {
             if a == 0 {
                 return Err(JobError {
                     message: String::from("Job with 0 alignment found!"),
+                    culprit: in_elts.remove(idx),
+                });
+            }
+            // `idealloc` ensures [natural alignment](https://docs.kernel.org/core-api/unaligned-memory-access.html)
+            // at all cases. Natural alignment depends on the block's size.
+            // Ensure that that size is a multiple of the *requested* alignment.
+            if j.size % a != 0 {
+                return Err(JobError {
+                    message: String::from("Job with conflicting size/alignment found!"),
                     culprit: in_elts.remove(idx),
                 });
             }
@@ -55,18 +56,10 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
         }
     }
 
-    if in_elts.is_sorted() {
-        Ok(in_elts
-            .into_iter()
-            .map(|x| Arc::new(x))
-            .collect())
-    } else {
-        Ok(in_elts
-            .into_iter()
-            .sorted()
-            .map(|x| Arc::new(x))
-            .collect())
-    }
+    Ok(in_elts
+        .into_iter()
+        .map(|x| Arc::new(x))
+        .collect())
 }
 
 /// Forms Theorem 2's R_i groups. 
