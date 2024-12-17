@@ -21,6 +21,7 @@ impl Job {
     /// 
     /// The new job's contents are sorted by the "big rocks first"
     /// heuristic--that is, by size.
+    #[inline(always)]
     pub fn new_box(
         contents:   JobSet,
         height:     ByteSteps,
@@ -60,11 +61,13 @@ impl Job {
     }
 
     /// Returns `true` if the job is live at moment `t`.
+    #[inline(always)]
     pub fn is_live_at(&self, t: usize) -> bool {
         self.birth < t && self.death > t
     }
 
     /// Returns `true` if job's lifetime is a subset of `space`.
+    #[inline(always)]
     pub fn lives_within(&self, space: &(ByteSteps, ByteSteps)) -> bool {
         self.birth >= space.0 && self.death <= space.1
     }
@@ -72,6 +75,7 @@ impl Job {
     /// Returns `true` if the job is original, i.e., was
     /// part of the user input and not created in the context
     /// of boxing.
+    #[inline(always)]
     pub fn is_original(&self) -> bool {
         if let Some(_) = self.contents {
             false
@@ -82,12 +86,14 @@ impl Job {
 
     /// Returns `true` if the job's entire lifetime ends
     /// before `t`.
+    #[inline(always)]
     pub fn dies_before(&self, t: ByteSteps) -> bool {
         self.death <= t
     }
 
     /// Returns `true` if the job's entire lifetime starts 
     /// after `t`.
+    #[inline(always)]
     pub fn born_after(&self, t: ByteSteps) -> bool {
         self.birth >= t
     }
@@ -100,10 +106,12 @@ impl Job {
     /// in which it is considered live.
     ///
     /// This function assumes that the lifetime is legit.
+    #[inline(always)]
     pub fn lifetime(&self) -> ByteSteps {
         self.death - self.birth - 1
     }
 
+    #[inline(always)]
     pub fn area(&self) -> ByteSteps {
         self.size * self.lifetime()
     }

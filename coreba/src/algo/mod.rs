@@ -112,6 +112,9 @@ pub fn idealloc(
                 // u32::MAX / 2 - jobs_num_to_box boxes are made.
                 u32::MAX / 2 + 1
             };
+            let mut final_placement = reg.values()
+                .cloned()
+                .collect();
             let ig_reg = (ig, reg);
 
             // Initializations related to the last
@@ -123,7 +126,7 @@ pub fn idealloc(
             let (_h_min, h_max) = input.min_max_height();
             let final_h = h_max as f64 / mu;
 
-            loop {
+            while lives_left > 0 && best_opt > target_opt {
                 let boxed = c_15(pre_boxed.clone(), final_h, mu);
                 debug_assert!(boxed.check_boxed_originals(to_box as u32), "Invalid boxing!");
                 let current_opt = boxed.place(&ig_reg, total_iters, best_opt, dumb_id, start_address);
@@ -132,6 +135,13 @@ pub fn idealloc(
                     debug_assert!(placement_is_valid(&ig_reg));
                     best_opt = current_opt;
                     lives_left = max_lives + 1;
+                    final_placement = ig_reg.1
+                        .values()
+                        .map(|pj| {
+                            let baby = PlacedJob::new(pj.descr.clone());
+                            baby.offset.set(pj.offset.get());
+                            Rc::new(baby)})
+                        .collect();
                 }
                 total_iters += 1;
                 lives_left -= 1;
@@ -141,19 +151,18 @@ pub fn idealloc(
             };
 
             println!(
-                "\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nLives hardness:\t\t{:.2}%\n{:.2}% less fragmentation against heuristic.\n",
-                hardness.0,
-                hardness.1,
-                hardness.2,
+                "\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nDeaths hardness:\t{:.2}%\nCompound hardness:\t{:.2}\n{:.2}% less fragmentation against heuristic.\n",
+                hardness.0 * 100.0,
+                hardness.1 * 100.0,
+                hardness.2 * 100.0,
+                (1.0 + hardness.0) * (1.0 + hardness.1) * (1.0 + hardness.2),
                 (heuristic_opt - best_opt) as f64 / real_load as f64 * 100.0
             );
 
             (
                 real_load,
                 best_opt,
-                ig_reg.1
-                    .into_values()
-                    .collect()
+                final_placement
             )
         }
     };

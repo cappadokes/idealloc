@@ -290,12 +290,14 @@ impl PlacedJob {
         }
     }
 
+    #[inline(always)]
     pub fn next_avail_offset(&self) -> ByteSteps {
         self.offset.get() + self.descr.size
     }
 
     /// Returns a [naturally aligned](https://docs.kernel.org/core-api/unaligned-memory-access.html)
     /// offset for the job.
+    #[inline(always)]
     pub fn get_corrected_offset(
         &self, 
         start_addr: ByteSteps,
@@ -404,6 +406,7 @@ impl T2Control {
 
     /// Generates a random number within (left, right) at which
     /// at least one piece in `jobs` is live.
+    #[inline(always)]
     pub fn gen_crit(
         jobs:   &Instance, 
         left:   ByteSteps, 
@@ -503,6 +506,7 @@ impl New for VertStripJob {
     fn new(job: Arc<Job>) -> Self {
         Self { job }
     }
+    #[inline(always)]
     fn get_inner_job(self) -> Arc<Job> {
         self.job
     }
@@ -545,6 +549,7 @@ impl New for HorStripJob {
     fn new(job: Arc<Job>) -> Self {
         Self { job }
     }
+    #[inline(always)]
     fn get_inner_job(self) -> Arc<Job> {
         self.job
     }
@@ -573,6 +578,7 @@ impl PartialEq for HorStripJob {
 /// strips into boxes containing `group_size` jobs each.
 /// 
 /// The real size of each box is `box_size`.
+#[inline(always)]
 pub fn strip_boxin(
     verticals:      Vec<BinaryHeap<VertStripJob>>,
     horizontals:    Vec<BinaryHeap<HorStripJob>>,
@@ -589,6 +595,7 @@ pub fn strip_boxin(
 /// of a single strip into boxes containing `group_size` jobs each.
 /// 
 /// The real size of each box is `box_size`.
+#[inline(always)]
 fn strip_box_core<T>(
     strips:         Vec<BinaryHeap<T>>,
     group_size:     ByteSteps,
@@ -616,6 +623,7 @@ fn strip_box_core<T>(
 
 /// Helper function for Lemma 1. Selects `to_take`
 /// jobs from a given iterator.
+#[inline(always)]
 pub fn strip_cuttin<T>(
     source:     &mut IndexMap<u32, Arc<Job>>,
     mirror:     &mut IndexMap<u32, Arc<Job>>,

@@ -34,8 +34,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
     let mut max_id = 0;
     // For hardness characterization.
     let mut sizes_sum = 0;
-    let mut lives_sum = 0;
-    let mut l_max = 0;
+    let mut deaths_sum = 0;
 
     let mut evts = get_events(&jobs);
     while let Some(e) = evts.pop() {
@@ -47,12 +46,8 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 if e.job.size > h_max {
                     h_max = e.job.size;
                 }
-                if e.job.lifetime() > l_max {
-                    l_max = e.job.lifetime();
-                }
                 if e.job.id > max_id { max_id = e.job.id; }
                 sizes_sum += e.job.size;
-                lives_sum += e.job.lifetime();
                 //---START MAX LOAD UPDATE---
                 running_load += e.job.size;
                 if running_load > max_load {
@@ -102,6 +97,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 //---END MAX LOAD UPDATE
                 if !overlap_exists { last_evt_was_birth = false; }
                 live.remove(&e.job.id);
+                deaths_sum += e.job.death;
                 if e.job.death > max_death { max_death = e.job.death; }
             },
         }
@@ -114,7 +110,12 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
         AnalysisResult::SameSizes(jobs, ig, registry)
     } else {
-        // Create baseline.
+        // We have observed a tendency to underperform against the following
+        // heuristic--we thus keep it as a fallback solution.
+        //
+        // It's "sort by size-and-lifetime and do first-fit".
+        //
+        // (we would go for best-fit if latency wasn't of the essence)
         let ordered: PlacedJobSet = registry.values()
             .sorted_by(|a, b| { 
                 b.descr
@@ -153,24 +154,24 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
 
         // Instance characterization.
         let h_mean = sizes_sum as f64 / to_box as f64;
-        let life_mean = lives_sum as f64 / to_box as f64;
-        let (height_squared_devs, life_squared_devs) = jobs.iter()
+        let death_mean = deaths_sum as f64 / to_box as f64;
+        let (height_squared_devs, death_squared_devs) = jobs.iter()
             .fold((0.0, 0.0), |(ss, ls), j| {
                 (
                     ss + (j.size as f64 - h_mean).powi(2),
-                    ls + (j.lifetime() as f64 - life_mean).powi(2)
+                    ls + (j.death as f64 - death_mean).powi(2)
                 )
 
             });
         let size_std = (height_squared_devs / (to_box as f64)).sqrt();
-        let life_std = (life_squared_devs / (to_box as f64)).sqrt();
-        let h_hardness = size_std / h_mean * 100.0;
-        let life_hardness = life_std / life_mean * 100.0;
+        let death_std = (death_squared_devs / (to_box as f64)).sqrt();
+        let h_hardness = size_std / h_mean;
+        let death_hardness = death_std / death_mean;
         let double_num_conflicts = ig.values()
             .fold(0, |s, js| s + js.len());
         assert!(double_num_conflicts % 2 == 0);
         let num_two_combos = to_box * (to_box - 1) / 2;
-        let conflict_hardness = (double_num_conflicts / 2) as f64 / num_two_combos as f64 * 100.0;
+        let conflict_hardness = (double_num_conflicts / 2) as f64 / num_two_combos as f64;
 
         if small_end >= big_end {
             // Demanding that small < end leads to the condition:
@@ -213,7 +214,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
             reg:        registry,
             mu_lim,
             best_opt,
-            hardness:   (h_hardness, conflict_hardness, life_hardness)
+            hardness:   (h_hardness, conflict_hardness, death_hardness)
         })
     }
 }

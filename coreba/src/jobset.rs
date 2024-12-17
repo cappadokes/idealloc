@@ -63,6 +63,7 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
 }
 
 /// Forms Theorem 2's R_i groups. 
+#[inline(always)]
 pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
     let mut res = vec![];
     // The algorithm recursively splits around (q/2).ceil(), where
@@ -107,6 +108,7 @@ pub fn split_ris(jobs: JobSet, pts: &[ByteSteps]) -> Vec<JobSet> {
     res
 }
 
+#[inline(always)]
 pub fn get_max_size(jobs: &JobSet) -> ByteSteps {
     jobs.iter()
         .map(|j| j.size)
@@ -114,6 +116,7 @@ pub fn get_max_size(jobs: &JobSet) -> ByteSteps {
         .unwrap()
 }
 
+#[inline(always)]
 pub fn get_load(jobs: &JobSet) -> ByteSteps {
     let (mut running, mut max) = (0, 0);
     let mut evts = get_events(jobs);
@@ -148,6 +151,7 @@ pub fn get_total_originals_boxed(jobs: &JobSet) -> u32 {
 
 /// Self-explanatory. Each [JobSet] of the returned vector
 /// is an IGC row.
+#[inline(always)]
 pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
     let mut res: Vec<JobSet> = vec![];
     // This is our inventory of free rows. We'll be pulling
@@ -193,6 +197,7 @@ pub fn interval_graph_coloring(jobs: JobSet) -> Vec<JobSet> {
     res
 }
 
+#[inline(always)]
 pub fn get_events(jobs: &JobSet) -> Events {
     let mut res = BinaryHeap::new();
     for j in jobs {
@@ -215,6 +220,7 @@ pub fn get_events(jobs: &JobSet) -> Events {
 /// their endpoints to an ordered set, eventually returned.
 /// 
 /// Used in the context of Theorem 2.
+#[inline(always)]
 pub fn gap_finder(row_jobs: &JobSet, (alpha, omega): (ByteSteps, ByteSteps)) -> BTreeSet<ByteSteps> {
     let mut res = BTreeSet::new();
     // Again we use event traversal. Row jobs are already sorted

@@ -123,7 +123,6 @@ pub fn get_loose_placement(
 /// of jobs (by some symbolic offset). Returns the resulting makespan.
 /// 
 /// Stops early if the running makespan exceeds a pre-defined limit.
-/// Prints the total time of the operation.
 pub fn do_best_fit(
     mut loose:      LoosePlacement,
     ig:             &InterferenceGraph,

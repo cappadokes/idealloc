@@ -28,6 +28,7 @@ pub fn rogue(input: Rc<Instance>, epsilon: f64) -> Rc<Instance> {
     }
 }
 
+#[inline(always)]
 pub fn c_15(
     input:      Rc<Instance>,
     h:          f64,
@@ -198,6 +199,7 @@ fn t_2(
 }
 
 /// Implements Buchsbaum et al's Lemma 1.
+#[inline(always)]
 fn lemma_1(
     input:  JobSet,
     h:      ByteSteps,

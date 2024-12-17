@@ -9,6 +9,7 @@ pub struct Info {
 }
 
 impl Info {
+    #[inline(always)]
     fn merge(this: &Instance, that: &Instance) -> Self {
         let mut res = Self {
             load:           Cell::new(None),
@@ -33,6 +34,7 @@ impl Info {
 
 impl Instance {
     /// Creates a new [Instance] from a [JobSet].
+    #[inline(always)]
     pub fn new(jobs: JobSet) -> Self {
         Self {
             jobs,
@@ -48,6 +50,7 @@ impl Instance {
     /// Splits instance to unit-height buckets, in the
     /// context of Corollary 15. Each bucket is indexed
     /// by the height to be given to Theorem 2.
+    #[inline(always)]
     pub fn make_buckets(mut source: Rc<Self>, epsilon: f64) -> HashMap<ByteSteps, Instance> {
         let mut res = HashMap::new();
         let mut prev_floor = 1.0 / (1.0 + epsilon);
@@ -76,6 +79,7 @@ impl Instance {
     ///     (ii)    the implied `μ` = ε / (log`r`)^2
     ///     (iii)   the box size with which Corollary 15 would be called
     ///     (iv)    whether it's safe to mimic Theorem 16
+    #[inline(always)]
     pub fn get_safety_info(&self, epsilon: f64) -> (f64, f64, f64, bool) {
         let (h_min, h_max) = self.min_max_height();
         let (x_1, _, _, lg2r) = self.ctrl_prelude();
@@ -87,6 +91,7 @@ impl Instance {
     }
 
     /// Returns (smallest birth, largest death).
+    #[inline(always)]
     pub fn get_horizon(&self) -> (ByteSteps, ByteSteps) {
         self.jobs.iter()
             .fold((ByteSteps::MAX, 0), |(mut smallest_birth, mut largest_death), j| {
@@ -103,6 +108,7 @@ impl Instance {
 
     /// Returns the minimum and maximum TRUE height over the
     /// instance's jobs.
+    #[inline(always)]
     pub fn min_max_height(&self) -> (ByteSteps, ByteSteps) {
         match self.info.min_max_height.get() {
             Some(v) => v,
@@ -130,6 +136,7 @@ impl Instance {
 
     /// Splits an [Instance] into two new instances, the first
     /// containing jobs of TRUE size up to `ceil`.
+    #[inline(always)]
     pub fn split_by_height(&self, ceil: ByteSteps) -> (Self, Self) {
         let to_split = self.jobs.len();
         let (small, high): (JobSet, JobSet) = self.jobs
@@ -145,6 +152,7 @@ impl Instance {
     /// Splits an [Instance] into multiple new instances, the first
     /// containing jobs that are live in at least one moment of those
     /// in `pts`.
+    #[inline(always)]
     pub fn split_by_liveness(mut self, pts: &BTreeSet<ByteSteps>) -> (JobSet, HashMap<ByteSteps, Instance>) {
         let mut x_is_base: HashMap<ByteSteps, Vec<Arc<Job>>> = HashMap::new();
         let mut live = vec![];
@@ -217,6 +225,7 @@ impl Instance {
     }
 
     /// Merges `self` with another [Instance].
+    #[inline(always)]
     pub fn merge_with(&self, other: Self) -> Rc<Self> {
         let to_join = self.jobs.len() + other.jobs.len();
         let new_info =  Info::merge(&self, &other);
@@ -235,6 +244,7 @@ impl Instance {
 
     /// Does the same as [`Instance::merge_with`], but without consuming
     /// `self`. Used in the context of consolidating `Mutex`-protected results.
+    #[inline(always)]
     pub fn merge_via_ref(&mut self, mut other: Self) {
         let to_join = self.jobs.len() + other.jobs.len();
         let all: Vec<Arc<Job>> = self.jobs
