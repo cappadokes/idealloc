@@ -36,7 +36,7 @@ pub fn idealloc(
     worst_case_frag:    f64,
     start_address:      ByteSteps,
     max_lives:          u32,
-) -> (PlacedJobSet, ByteSteps) {
+) -> (PlacedJobRegistry, ByteSteps) {
     // Measure total allocation time.
     let total_start = Instant::now();
 
@@ -58,7 +58,7 @@ pub fn idealloc(
                         // Don't forget alignment!
                         placed.offset.set(placed.get_corrected_offset(start_address, 0));
 
-                        Rc::new(placed)
+                        (placed.descr.id, Rc::new(placed))
                     })
                     .collect()
             )
@@ -83,8 +83,7 @@ pub fn idealloc(
             (
                 l, 
                 do_best_fit(loose, &ig, 0, ByteSteps::MAX, false, start_address), 
-                reg.into_values()
-                    .collect()
+                reg
             )
         },
         AnalysisResult::NeedsBA(BACtrl {
@@ -112,8 +111,12 @@ pub fn idealloc(
                 // u32::MAX / 2 - jobs_num_to_box boxes are made.
                 u32::MAX / 2 + 1
             };
+            // Ensure that we return a "correct" set of offsets.
             let mut final_placement = reg.values()
-                .cloned()
+                .map(|pj| {
+                    let baby = PlacedJob::new(pj.descr.clone());
+                    baby.offset.set(pj.offset.get());
+                    (baby.descr.id, Rc::new(baby))})
                 .collect();
             let ig_reg = (ig, reg);
 
@@ -140,7 +143,7 @@ pub fn idealloc(
                         .map(|pj| {
                             let baby = PlacedJob::new(pj.descr.clone());
                             baby.offset.set(pj.offset.get());
-                            Rc::new(baby)})
+                            (baby.descr.id, Rc::new(baby))})
                         .collect();
                 }
                 total_iters += 1;

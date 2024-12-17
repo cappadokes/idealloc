@@ -282,6 +282,7 @@ pub struct PlacedJob {
 }
 
 impl PlacedJob {
+    #[inline(always)]
     pub fn new(descr: Arc<Job>) -> Self {
         Self {
             descr,
