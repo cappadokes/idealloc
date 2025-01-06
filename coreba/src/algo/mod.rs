@@ -171,8 +171,8 @@ pub fn idealloc(
     };
 
     println!(
-        "Total allocation time: {} μs",
-        total_start.elapsed().as_micros()
+        "Total allocation time: {:.2} seconds",
+        total_start.elapsed().as_secs_f64()
     );
 
     println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", 

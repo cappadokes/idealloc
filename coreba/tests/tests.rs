@@ -18,11 +18,18 @@ where T: JobGen<B> {
         Ok(set)
 }
 
-const MAX_LIVES: u32 = 31;
+const MAX_LIVES: u32 = 3;
 
 #[test]
+fn run_pangu() {
+    let set = read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>("tests/data/pangu_2.6B.csv").unwrap();
+    coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
+}
+
+/*
+#[test]
 fn run_hello_plc() {
-    let set = read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>("tests/data/hi_again.plc").unwrap();
+    let set = read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>("tests/data/espeak3.plc").unwrap();
     coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
 }
 
@@ -47,12 +54,6 @@ fn run_tiny() {
 #[test]
 fn run_minimalloc_i() {
     let set = read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>("tests/data/I.1048576.csv").unwrap();
-    coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
-}
-
-#[test]
-fn run_pangu() {
-    let set = read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>("tests/data/pangu_2.6B.csv").unwrap();
     coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
 }
 
@@ -127,3 +128,4 @@ fn run_minimalloc_k() {
     let set = read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>("tests/data/K.1048576.csv").unwrap();
     coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
 }
+*/

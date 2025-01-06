@@ -103,6 +103,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         }
     };
 
+    println!("Events processed.");
     if !overlap_exists {
         println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
         AnalysisResult::NoOverlap(jobs)
@@ -125,6 +126,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 })
             .cloned()
             .collect();
+        println!("Size-life ordering done.");
         let mut symbolic_offset = 0;
         for pj in &ordered {
             pj.offset.set(symbolic_offset);
@@ -138,6 +140,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 ByteSteps::MAX,
                 true,
                 0);
+        println!("Best-fit done.");
         // Interference graph has been built, max load has been computed.
         // BA needs to run, so we must compute epsilon, initialize rogue, etc.
         //
@@ -202,7 +205,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         let (_, small_end, big_end, _) = instance.ctrl_prelude();
         assert!(small_end < big_end);
         let (epsilon, pre_boxed) = init_rogue(instance.clone(), small_end, big_end);
-        println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
+        println!("Prelude overhead: {:.2} secs", prelude_cost.elapsed().as_secs_f64());
         AnalysisResult::NeedsBA(BACtrl {
             input:      instance,
             pre_boxed,

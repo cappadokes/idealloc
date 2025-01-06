@@ -15,3 +15,7 @@ thiserror   = { workspace = true }
 rayon       = { workspace = true }
 rand        = { workspace = true }
 indexmap    = { workspace = true }
+
+[[bin]]
+name = "idealloc"
+path = "src/bin/idealloc.rs"
