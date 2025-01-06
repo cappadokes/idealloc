@@ -37,6 +37,8 @@ pub fn idealloc(
     start_address:      ByteSteps,
     max_lives:          u32,
 ) -> (PlacedJobRegistry, ByteSteps) {
+    // Set a big enough stack size, since core algo is recursive.
+    let _tpb = rayon::ThreadPoolBuilder::new().stack_size(1048576 * 1024).build_global().unwrap();
     // Measure total allocation time.
     let total_start = Instant::now();
 
