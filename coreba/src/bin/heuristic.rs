@@ -52,13 +52,16 @@ fn main() {
     assert!(input_path.exists() && input_path.is_file(), "Invalid input path");
     let set = match cli.format {
         InpuType::ExCSV => {
-            read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>(input_path)
+            read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>(input_path, 1)
+        },
+        InpuType::InExCSV => {
+            read_from_path::<IREECSVParser, Job>(input_path, 1)
         },
         InpuType::InCSV => {
-            read_from_path::<IREECSVParser, Job>(input_path)
+            read_from_path::<IREECSVParser, Job>(input_path, 2)
         },
         InpuType::PLC   => {
-            read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path)
+            read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0)
         }
     }.unwrap();
     let total = Instant::now();

@@ -48,7 +48,7 @@ pub trait JobGen<T> {
     fn new(path: PathBuf) -> Self;
     /// Either a set of jobs is successfully returned, or some
     /// arbitrary type that implements [std::error::Error].
-    fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>>;
+    fn read_jobs(&self, shift: ByteSteps) -> Result<Vec<Job>, Box<dyn std::error::Error>>;
     /// Uses some available data to spawn one [Job]. We do not put
     /// any limitations on what that data may look like.
     fn gen_single(&self, d: T, id: u32) -> Job;
@@ -107,7 +107,7 @@ impl JobGen<&[u8; 8 * PLC_FIELDS_NUM]> for PLCParser {
 
         baby_job
     }
-    fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
+    fn read_jobs(&self, _: ByteSteps) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let path = self.path.as_path();
         let mut res = vec![];
         match std::fs::metadata(path) {
@@ -139,7 +139,7 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
         }
     }
   
-    fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
+    fn read_jobs(&self, _: ByteSteps) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let mut res = vec![];
         let mut data_buf: [ByteSteps; 3] = [0; 3];
         let mut next_id = 0;
@@ -205,9 +205,9 @@ impl JobGen<Job> for IREECSVParser {
         }
     }
 
-    fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
+    fn read_jobs(&self, shift: ByteSteps) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let helper = MinimalloCSVParser::new(self.dirty.clone());
-        let dirty_jobs: JobSet = helper.read_jobs()
+        let dirty_jobs: JobSet = helper.read_jobs(0)
             .unwrap()
             .into_iter()
             .map(|j| Arc::new(j))
@@ -238,7 +238,7 @@ impl JobGen<Job> for IREECSVParser {
                     let template = Job {
                         size:               e.job.size,
                         birth:              e.job.birth + num_generations,
-                        death:              e.job.death + 2 + num_generations,
+                        death:              e.job.death + shift + num_generations,
                         req_size:           e.job.size,
                         alignment:          None,
                         contents:           None,
@@ -649,18 +649,20 @@ pub fn strip_cuttin<T>(
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 pub enum InpuType {
-    /// A CSV file using the minimalloc benchmarks format (exclusive lifetime endpoints)
+    /// A CSV file using the minimalloc benchmarks format (exclusive endpoints)
     ExCSV,
-    /// A CSV file using the minimalloc benchmarks format (inclusive lifetime endpoints)
+    /// A CSV file using the minimalloc benchmarks format (start-inclusive, end-exclusive endpoints)
+    InExCSV,
+    /// A CSV file using the minimalloc benchmarks format (inclusive endpoints)
     InCSV,
     /// An `idealloc`-native, binary-encoded file, produced by the `adapt` tool
     PLC
 }
 
-pub fn read_from_path<T, B>(file_path: PathBuf) -> Result<JobSet, Box<dyn std::error::Error>> 
+pub fn read_from_path<T, B>(file_path: PathBuf, shift: ByteSteps) -> Result<JobSet, Box<dyn std::error::Error>> 
 where T: JobGen<B> {
     let parser = T::new(file_path);
-    let jobs = parser.read_jobs()?;
+    let jobs = parser.read_jobs(shift)?;
     assert!(jobs.len() > 0);
     let set = crate::jobset::init(jobs)?;
 
