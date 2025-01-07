@@ -14,6 +14,7 @@ pub use thiserror::Error;
 pub use itertools::Itertools;
 pub use rayon::prelude::*;
 pub use indexmap::IndexMap;
+pub use clap::{Parser, ValueEnum};
 
 pub use crate::{Instance, Job,
     jobset::*,
@@ -640,4 +641,24 @@ pub fn strip_cuttin<T>(
     }
 
     res
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+pub enum InpuType {
+    /// A CSV file using the minimalloc benchmarks format (exclusive lifetime endpoints)
+    ExCSV,
+    /// A CSV file using the minimalloc benchmarks format (inclusive lifetime endpoints)
+    InCSV,
+    /// An `idealloc`-native, binary-encoded file, produced by the `adapt` tool
+    PLC
+}
+
+pub fn read_from_path<T, B>(file_path: PathBuf) -> Result<JobSet, Box<dyn std::error::Error>> 
+where T: JobGen<B> {
+    let parser = T::new(file_path);
+    let jobs = parser.read_jobs()?;
+    assert!(jobs.len() > 0);
+    let set = crate::jobset::init(jobs)?;
+
+    Ok(set)
 }

@@ -1,26 +1,46 @@
 use coreba::*;
 
-const MAX_FRAG: f64 = 1.0;
+/// A golden standard for dynamic storage allocation
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Path to input
+    #[arg(short, long, value_parser = clap::value_parser!(PathBuf))]
+    input:      PathBuf,
 
-fn get_crate_root() -> Result<PathBuf, std::env::VarError> {
-    Ok(PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?))
+    /// Input format
+    #[arg(value_enum)]
+    format:     InpuType,
+
+    /// Maximum fragmentation allowed (e.g., 1.05 allows <= 5% memory waste)
+    #[arg(short = 'f', long, default_value_t = 1.0)]
+    #[arg(value_parser = clap::value_parser!(f64))]
+    max_frag:   f64,
+
+    /// Start address
+    #[arg(short, long, default_value_t = 0)]
+    start:      ByteSteps,
+
+    /// Maximum number of tries allowed to beat bootstrap heuristic
+    #[arg(short = 'l', long, default_value_t = 1)]
+    max_lives:  u32
 }
-
-fn read_from_path<T, B>(p: &str) -> Result<JobSet, Box<dyn std::error::Error>> 
-where T: JobGen<B> {
-    let mut file_path = get_crate_root()?;
-    file_path.push(p);
-    let parser = T::new(file_path);
-    let jobs = parser.read_jobs()?;
-    assert!(jobs.len() > 0);
-    let set = coreba::jobset::init(jobs)?;
-
-        Ok(set)
-}
-
-const MAX_LIVES: u32 = 11;
 
 fn main() {
-    let set = read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>("tests/data/ldb0.plc").unwrap();
-    coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
+    let cli = Args::parse();
+    let input_path = cli.input;
+    assert!(input_path.exists() && input_path.is_file(), "Invalid input path");
+    assert!(cli.max_frag >= 1.0, "Maximum fragmentation must be at least 1.0");
+    let set = match cli.format {
+        InpuType::ExCSV => {
+            read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>(input_path)
+        },
+        InpuType::InCSV => {
+            read_from_path::<IREECSVParser, Job>(input_path)
+        },
+        InpuType::PLC   => {
+            read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path)
+        }
+    }.unwrap();
+    coreba::algo::idealloc(set, cli.max_frag, cli.start, cli.max_lives);
 }

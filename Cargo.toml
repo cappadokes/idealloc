@@ -27,3 +27,4 @@ thiserror               = "1.0.64"
 rand                    = "0.8.5"
 itertools               = "0.13.0"
 plotters                = "0.3.7"
+clap                    = {version = "4.5.23", features = ["derive"]}
