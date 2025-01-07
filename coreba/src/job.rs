@@ -1,6 +1,10 @@
 use crate::helpe::*;
 
 impl Job {
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
     /// Creates a dummy [Job], to be filled
     /// with meaningful data from someone else.
     pub fn new() -> Self {

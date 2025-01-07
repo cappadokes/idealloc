@@ -20,3 +20,7 @@ clap        = { workspace = true }
 [[bin]]
 name = "idealloc"
 path = "src/bin/idealloc.rs"
+
+[[bin]]
+name = "heuristic"
+path = "src/bin/heuristic.rs"

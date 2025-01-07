@@ -19,10 +19,12 @@ struct Args {
 
     /// Start address
     #[arg(short, long, default_value_t = 0)]
+    #[arg(value_parser = clap::value_parser!(ByteSteps))]
     start:      ByteSteps,
 
     /// Maximum number of tries allowed to beat bootstrap heuristic
     #[arg(short = 'l', long, default_value_t = 1)]
+    #[arg(value_parser = clap::value_parser!(u32))]
     max_lives:  u32
 }
 

@@ -283,6 +283,10 @@ pub struct PlacedJob {
 }
 
 impl PlacedJob {
+    pub fn overlaps_with(&self, other: &Self) -> bool {
+        self.descr.birth < other.descr.death &&
+        other.descr.birth < self.descr.death
+    }
     #[inline(always)]
     pub fn new(descr: Arc<Job>) -> Self {
         Self {
