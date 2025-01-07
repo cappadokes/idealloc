@@ -20,16 +20,16 @@ where T: JobGen<B> {
 
 const MAX_LIVES: u32 = 3;
 
+
+#[test]
+fn run_hello_plc() {
+    let set = read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>("tests/data/ldb0.plc").unwrap();
+    coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
+}
+/*
 #[test]
 fn run_pangu() {
     let set = read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>("tests/data/pangu_2.6B.csv").unwrap();
-    coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
-}
-
-/*
-#[test]
-fn run_hello_plc() {
-    let set = read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>("tests/data/espeak3.plc").unwrap();
     coreba::algo::idealloc(set, MAX_FRAG, 0, MAX_LIVES);
 }
 

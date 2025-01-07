@@ -96,11 +96,10 @@ fn main() {
     };
 
     let mut symbolic_offset = 0;
-    for pj in &ordered {
+    for pj in ordered.iter() {
         pj.offset.set(symbolic_offset);
         symbolic_offset += 1;
     }
-    let load = get_load(&set);
     let makespan = do_naive_fit(
         ordered.into_iter().collect(),
         cli.fit,
@@ -111,6 +110,7 @@ fn main() {
         "Total allocation time: {:.2} seconds",
         total.elapsed().as_secs_f64()
     );
+    let load = get_load(&set);
     println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", 
         makespan, 
         load, 
@@ -118,6 +118,8 @@ fn main() {
     );
 }
 
+/// A fitting function which does not use an
+/// interference graph or early stopping.
 fn do_naive_fit(
     mut loose:  LoosePlacement,
     fit:        JobFit,
