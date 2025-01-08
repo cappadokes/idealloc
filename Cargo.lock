@@ -854,6 +854,8 @@ name = "sanity"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "clap",
+ "coreba",
  "indexmap",
  "plotters",
  "rayon",

@@ -195,7 +195,7 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
 /// *inclusive* semantics on both ends of a buffer's lifetime.
 /// Thus conversion is needed.
 pub struct IREECSVParser {
-    dirty:  PathBuf,
+    pub dirty:  PathBuf,
 }
 
 impl JobGen<Job> for IREECSVParser {

@@ -55,10 +55,10 @@ const CODES: [ReqType; 7] = [
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Placement {
-    heap: usize,
-    offset: usize,
-    size: usize,
-    align: usize,
+    pub heap: usize,
+    pub offset: usize,
+    pub size: usize,
+    pub align: usize,
 }
 
 impl Placement {
@@ -118,7 +118,7 @@ impl Request {
 
     pub fn new_trc_event(world: &mut SimWorld) -> Option<()> {
         //! Spawns a new event from a trace file.
-        let trace = &mut world.input;
+        let trace = &mut world.input.as_mut().unwrap();
         let mut sentinel: [u8; 1] = [0];
         let mut baby_req = Self {
             rtype: ReqType::Done,
@@ -237,7 +237,7 @@ impl Request {
     }
 
     pub fn new_minimalloc_event(world: &mut SimWorld) -> Option<()> {
-        let maybe_dirty = &mut world.input;
+        let maybe_dirty = &mut world.input.as_mut().unwrap();
         if let Some(l) = maybe_dirty
             .lines()
             .skip(if world.objects_num == 0 { 1 } else { 0 })
@@ -280,9 +280,9 @@ impl Request {
         }
     }
 
-    pub fn new_from_plc(world: &mut SimWorld) -> Option<()> {
+    pub fn new_from_plc(world: &mut SimWorld, single_heap: usize) -> Option<()> {
         const PLC_FIELDS_NUM: usize = 8;
-        let plc_source = &mut world.input;
+        let plc_source = &mut world.input.as_mut().unwrap();
         let mut buffer: [u8; 8 * PLC_FIELDS_NUM] = [0; 8 * PLC_FIELDS_NUM];
         let mut baby_job = Object {
             birth: 0,
@@ -320,6 +320,7 @@ impl Request {
                             baby_job.home.size = data;
                         }
                         5 => {
+                            assert!(data == single_heap, "Only single-heap instances allowed.");
                             baby_job.home.heap = data;
                         }
                         6 => {
@@ -357,7 +358,7 @@ pub struct Object {
     // CAUTION: This is the REQUESTED, not the ALLOCATED size!
     pub height: usize,
     pub home: Placement,
-    id: usize,
+    pub id: usize,
 }
 
 // In the context of fragmentation calculation, we are
@@ -520,17 +521,17 @@ impl Object {
 use ahash::AHasher;
 use indexmap::IndexMap;
 
-type ObSet = IndexMap<usize, Object, std::hash::BuildHasherDefault<AHasher>>;
+pub type ObSet = IndexMap<usize, Object, std::hash::BuildHasherDefault<AHasher>>;
 
 pub struct SimWorld {
     // Live jobs.
-    jobs: ObSet,
-    time: usize,
+    pub jobs: ObSet,
+    pub time: usize,
     // Trace file.
-    input: BufReader<File>,
+    pub input: Option<BufReader<File>>,
     pub objects_num: usize,
     // All jobs.
-    all_objects: ObSet,
+    pub all_objects: ObSet,
 }
 
 impl SimWorld {
@@ -545,7 +546,7 @@ impl SimWorld {
         Self {
             jobs: IndexMap::default(),
             time: 0,
-            input,
+            input: Some(input),
             objects_num: 0,
             all_objects: IndexMap::default(),
         }
@@ -1323,5 +1324,210 @@ pub mod plot {
         }
 
         jobs_result
+    }
+}
+
+use coreba::*;
+
+/// An (ugly) copy of the above trait, for use *outside* coreba.
+/// Particularly, when the `report` binary of the `sanity` crate
+/// reads already-placed jobs.
+pub trait PlacedJobGen<T> {
+    fn new_placed(path: PathBuf) -> Self;
+    fn read_placed_jobs(&self, shift: ByteSteps) -> Result<Vec<Rc<PlacedJob>>, Box<dyn std::error::Error>>;
+    fn gen_single_placed(&self, d: T, id: u32) -> Rc<PlacedJob>;
+}
+
+pub fn read_placed_from_path<T, B>(file_path: PathBuf, shift: ByteSteps) -> Result<PlacedJobSet, Box<dyn std::error::Error>> 
+where T: PlacedJobGen<B> {
+    let parser = T::new_placed(file_path);
+    let jobs = parser.read_placed_jobs(shift)?;
+    assert!(jobs.len() > 0);
+
+    Ok(jobs)
+}
+
+impl PlacedJobGen<&[ByteSteps; 4]> for MinimalloCSVParser {
+    fn new_placed(path: PathBuf) -> Self {
+        Self {
+            path,
+        }
+    }
+  
+    fn read_placed_jobs(&self, _: ByteSteps) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
+        let mut res = vec![];
+        let mut data_buf: [ByteSteps; 4] = [0; 4];
+        let mut next_id = 0;
+
+        let path = self.path
+            .as_path();
+
+        match std::fs::metadata(path) {
+            Ok(_)   => {
+                let fd = std::fs::File::open(path)?;
+                let reader = BufReader::new(fd);
+                for line in reader.lines()
+                    // First line is the header!
+                    .skip(1) {
+                    for (idx, data) in line?.split(',')
+                        // First column is the id!
+                        .skip(1)
+                        .take(4)
+                        .map(|x| {
+                            if let Ok(v) = usize::from_str_radix(x, 10) { v }
+                            else { panic!("Error while parsing CSV."); }
+                        }).enumerate() {
+                            data_buf[idx] = data;
+                    }
+                    res.push(self.gen_single_placed(&data_buf, next_id));
+                    next_id += 1;
+                }
+            },
+            Err(e)  => { return Err(Box::new(e)); }
+        };
+
+        Ok(res)
+    }
+
+    fn gen_single_placed(&self, d: &[ByteSteps; 4], id: u32) -> Rc<PlacedJob> {
+        Rc::new(PlacedJob {
+            descr:          Arc::new(
+                                Job {
+                                    size:               d[2],
+                                    birth:              d[0],
+                                    death:              d[1],
+                                    req_size:           d[2],
+                                    alignment:          None,
+                                    contents:           None,
+                                    originals_boxed:    0,
+                                    id
+                                }
+                            ),
+            offset:         Cell::new(d[3]),
+            times_squeezed: Cell::new(0),
+        })
+    }
+}
+
+impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
+    fn new_placed(dirty: PathBuf) -> Self {
+        Self {
+            dirty,
+        }
+    }
+
+    fn read_placed_jobs(&self, shift: ByteSteps) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
+        let helper = MinimalloCSVParser::new_placed(self.dirty.clone());
+        // These are the 'original' placed jobs. We will preserve their offsets,
+        // and change everything else.
+        let ground_truth = helper.read_placed_jobs(0).unwrap();
+        let cheatsheet: PlacedJobRegistry = ground_truth
+            .iter()
+            .map(|pj| (pj.descr.id, pj.clone()))
+            .collect();
+        // This helps with traversal.
+        let dirty_jobs: JobSet = ground_truth
+            .into_iter()
+            .map(|j| j.descr.clone())
+            .collect();
+        let mut events = get_events(&dirty_jobs);
+        let mut retired: PlacedJobSet = vec![];
+        let mut to_retire: HashMap<u32, Rc<PlacedJob>> = HashMap::new();
+        let mut num_generations = 0;
+        let mut last_was_birth = true;
+        while let Some(e) = events.pop() {
+            match e.evt_t {
+                EventKind::Birth    => {
+                    let template = Rc::new(
+                        PlacedJob::new(
+                        Arc::new(
+                            Job {
+                                size:               e.job.size,
+                                birth:              e.job.birth + num_generations,
+                                death:              e.job.death + shift + num_generations,
+                                req_size:           e.job.size,
+                                alignment:          None,
+                                contents:           None,
+                                originals_boxed:    0,
+                                id: e.job.id,
+                            }
+                        )
+                    ));
+                    template.offset.set(
+                        cheatsheet.get(&template.descr.id).unwrap().offset.get()
+                    );
+                    to_retire.insert(template.descr.id, template);
+                    last_was_birth = true;
+                },
+                EventKind::Death    => {
+                    let to_insert = to_retire.remove(&e.job.id).unwrap();
+                    retired.push(to_insert);
+                    if last_was_birth {
+                        num_generations += 1;
+                        last_was_birth = false;
+                    }
+                }
+            }
+        };
+
+        Ok(retired)
+    }
+    fn gen_single_placed(&self, d: Rc<PlacedJob>, _id: u32) -> Rc<PlacedJob> {
+        d
+    }
+}
+
+impl PlacedJobGen<&[u8; 8 * PLC_FIELDS_NUM]> for PLCParser {
+    fn new_placed(path: PathBuf) -> Self {
+        Self {
+            path
+        }
+    }
+    fn gen_single_placed(&self, d: &[u8; 8 * PLC_FIELDS_NUM], _: u32) -> Rc<PlacedJob> {
+        let mut words_read = 0;
+        let mut baby_job = Job::new();
+        let mut offset = 0;
+        while words_read < PLC_FIELDS_NUM {
+            let mut word_buffer: [u8; 8] = [0; 8];
+            for byte_count in 0..8 {
+                word_buffer[byte_count] = d[words_read * 8 + byte_count];
+            }
+            words_read += 1;
+            let data = usize::from_be_bytes(word_buffer);
+            match words_read {
+                1   => { baby_job.id = data.try_into().unwrap(); },
+                2   => { baby_job.birth = data; },
+                3   => { baby_job.death = data; },
+                4   => { baby_job.size = data; },
+                5   => {},
+                6   => { offset = data; },
+                7   => { if data != 0 { baby_job.alignment = Some(data); }},
+                8   => { baby_job.req_size = data; },
+                _   => { panic!("Unreachable state while parsing PLC."); }
+            }
+        }
+
+        let res = PlacedJob::new(Arc::new(baby_job));
+        res.offset.set(offset);
+
+        Rc::new(res)
+    }
+
+    fn read_placed_jobs(&self, _: ByteSteps) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
+        let path = self.path.as_path();
+        let mut res = vec![];
+        match std::fs::metadata(path) {
+            Ok(_)   => {
+                let fd = std::fs::File::open(path)?;
+                let mut reader = BufReader::new(fd);
+                let mut buffer: [u8; 8 * PLC_FIELDS_NUM] = [0; 8 * PLC_FIELDS_NUM];
+                while let Ok(_) = reader.read_exact(&mut buffer) {
+                    res.push(self.gen_single_placed(&buffer, 62));
+                }
+            },
+            Err(e)  => { return Err(Box::new(e)); }
+        }
+
+        Ok(res)
     }
 }

@@ -40,8 +40,8 @@ pub struct Job {
     pub size:           ByteSteps,
     pub birth:          ByteSteps,
     pub death:          ByteSteps,
-    req_size:           ByteSteps,
-    alignment:          Option<ByteSteps>,
+    pub req_size:       ByteSteps,
+    pub alignment:      Option<ByteSteps>,
     /// They user may not care, but `idealloc`'s core operation is boxing
     /// jobs together recursively. A very common interface is (i) consuming
     /// a set of jobs and (ii) producing a *new* set, its elements containing
@@ -50,10 +50,10 @@ pub struct Job {
     /// The boxing algorithm does not differentiate between "original" jobs
     /// that contain nothing and "spawned" jobs that contain at least one
     /// job. "Everything is a [`Job`]."
-    contents:           Option<JobSet>,
+    pub contents:       Option<JobSet>,
     // Used for debugging mostly.
-    originals_boxed:    u32,
-    id:                 u32,
+    pub originals_boxed:u32,
+    pub id:             u32,
 }
 
 /// The entity consumed and produced by the majority of

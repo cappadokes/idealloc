@@ -5,6 +5,14 @@ impl Job {
         self.id
     }
 
+    pub fn get_req_size(&self) -> ByteSteps {
+        self.req_size
+    }
+
+    pub fn get_alignment(&self) -> Option<ByteSteps> {
+        self.alignment
+    }
+
     /// Creates a dummy [Job], to be filled
     /// with meaningful data from someone else.
     pub fn new() -> Self {
