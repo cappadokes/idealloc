@@ -62,6 +62,9 @@ fn main() {
         },
         InpuType::PLC   => {
             read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0)
+        },
+        InpuType::TRC   => {
+            panic!("TRC files must first pass through the adapter.");
         }
     }.unwrap();
     let total = Instant::now();

@@ -19,9 +19,9 @@ fn main() {
     let input_path = cli.input;
     assert!(input_path.exists() && input_path.is_file(), "File does not exist");
 
-    let set: PlacedJobSet = if input_path.ends_with("plc") {
+    let set: PlacedJobSet = if input_path.extension().unwrap() == "plc" {
         read_placed_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0).unwrap()
-    } else if input_path.ends_with("csv") {
+    } else if input_path.extension().unwrap() == "csv" {
         assert!(cli.start == 0, "minimalloc is always assumed to assign zero as base offset");
         read_placed_from_path::<IREECSVParser, Rc<PlacedJob>>(input_path, 1).unwrap()
     } else { panic!("Only file types accepted are (i) idealloc-produced PLCs and (ii) minimalloc-produced CSVs"); };

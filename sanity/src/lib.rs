@@ -559,13 +559,12 @@ impl SimWorld {
         }
     }
 
-    pub fn give_back(&self, input_csv_name: &Path) {
-        let no_suffix_name = String::from(input_csv_name.file_stem().unwrap().to_str().unwrap());
+    pub fn give_back(&self, input_csv_name: PathBuf) {
         let fd = File::options()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(format!("{no_suffix_name}.plc"))
+            .open(input_csv_name)
             .unwrap();
         let mut writer = BufWriter::new(fd);
         for j in self.all_objects.values() {

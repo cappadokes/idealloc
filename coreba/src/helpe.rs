@@ -656,7 +656,9 @@ pub enum InpuType {
     /// A CSV file using the minimalloc benchmarks format (inclusive endpoints)
     InCSV,
     /// An `idealloc`-native, binary-encoded file, produced by the `adapt` tool
-    PLC
+    PLC,
+    /// An `idealloc`-native, binary-encoded file produced by tracing Linux programs
+    TRC,
 }
 
 pub fn read_from_path<T, B>(file_path: PathBuf, shift: ByteSteps) -> Result<JobSet, Box<dyn std::error::Error>> 

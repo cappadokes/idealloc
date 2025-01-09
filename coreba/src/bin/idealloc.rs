@@ -45,7 +45,8 @@ fn main() {
         },
         InpuType::PLC   => {
             read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0)
-        }
+        },
+        InpuType::TRC   => { panic!("TRC files must first be fed to the `adapt` binary!"); },
     }.unwrap();
     coreba::algo::idealloc(set, cli.max_frag, cli.start, cli.max_lives);
 }
