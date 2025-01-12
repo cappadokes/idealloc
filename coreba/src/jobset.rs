@@ -32,16 +32,15 @@ pub fn init(mut in_elts: Vec<Job>) -> Result<JobSet, JobError> {
             // `idealloc` ensures [natural alignment](https://docs.kernel.org/core-api/unaligned-memory-access.html)
             // at all cases. Natural alignment depends on the block's size.
             // Ensure that that size is a multiple of the *requested* alignment.
-            let mut tries = 3;
-            while j.size % a != 0 && tries > 0 {
-                j.size += 8;
-                tries -= 1;
-            }
             if j.size % a != 0 {
+                /*
                 return Err(JobError {
                     message: String::from("Job with conflicting size/alignment found!"),
                     culprit: in_elts.remove(idx),
                 });
+                */
+                j.size = (j.size / a + 1) * a;
+                assert!(j.size % a == 0);
             }
         } else if !j.is_original() {
             return Err(JobError {

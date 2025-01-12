@@ -418,23 +418,33 @@ impl Object {
 
         if let ReqType::ReAlloc(old_add, _) = inciting_req.rtype {
             if old_add != 0 {
-                let mut to_retire = world.jobs.swap_remove(&old_add).unwrap();
-                to_retire.death = world.time;
-                assert!(world
-                    .all_objects
-                    .insert(to_retire.id(), to_retire)
-                    .is_none());
+                if !world.dirty_addresses.contains(&old_add) {
+                    let mut to_retire = world.jobs.swap_remove(&old_add).unwrap();
+                    to_retire.death = world.time;
+                    assert!(world
+                        .all_objects
+                        .insert(to_retire.id(), to_retire)
+                        .is_none());
+                } else {
+                    world.dirty_addresses.remove(&old_add);
+                    println!("Balance returned!"); 
+                }
             }
         }
 
         if let ReqType::Free(old_add) = inciting_req.rtype {
             if old_add != 0 {
-                let mut to_retire = world.jobs.swap_remove(&old_add).unwrap();
-                to_retire.death = world.time;
-                assert!(world
-                    .all_objects
-                    .insert(to_retire.id(), to_retire)
-                    .is_none());
+                if !world.dirty_addresses.contains(&old_add) {
+                    let mut to_retire = world.jobs.swap_remove(&old_add).unwrap();
+                    to_retire.death = world.time;
+                    assert!(world
+                        .all_objects
+                        .insert(to_retire.id(), to_retire)
+                        .is_none());
+                } else {
+                    world.dirty_addresses.remove(&old_add);
+                    println!("Balance returned!");
+                }
             }
         } else {
             let data = data.unwrap();
@@ -456,8 +466,14 @@ impl Object {
             // commented-out for posterity.
             //world.update_time(data.size);
             world.update_time(res.height);
-            if let Some(_culprit) = world.jobs.insert(data.address(), res) {
-                panic!("Tried to insert job w/ existing ID!");
+            if let Some(mut culprit) = world.jobs.insert(data.address(), res) {
+                println!("Tried to insert job w/ existing address!");
+                world.dirty_addresses.insert(culprit.home.address());
+                culprit.death = world.time;
+                assert!(world
+                    .all_objects
+                    .insert(culprit.id(), culprit)
+                    .is_none());
             };
         }
     }
@@ -525,6 +541,7 @@ pub type ObSet = IndexMap<usize, Object, std::hash::BuildHasherDefault<AHasher>>
 
 pub struct SimWorld {
     // Live jobs.
+    pub dirty_addresses: HashSet<usize>,
     pub jobs: ObSet,
     pub time: usize,
     // Trace file.
@@ -545,6 +562,7 @@ impl SimWorld {
     pub fn new(input: BufReader<File>) -> Self {
         Self {
             jobs: IndexMap::default(),
+            dirty_addresses: HashSet::new(),
             time: 0,
             input: Some(input),
             objects_num: 0,

@@ -71,7 +71,7 @@ fn main() {
                                 match cli.output_format {
                                     InpuType::InCSV                 => { (e.job.birth, e.job.death) },
                                     InpuType::InExCSV               => { (e.job.birth, e.job.death + 1) },
-                                    InpuType::PLC | InpuType::ExCSV => { (e.job.birth, e.job.death + num_generations + 2) },
+                                    InpuType::PLC | InpuType::ExCSV => { (e.job.birth + num_generations, e.job.death + num_generations + 2) },
                                     InpuType::TRC                   => { unimplemented!(); },
                                 }
                             }
@@ -79,7 +79,7 @@ fn main() {
                                 match cli.output_format {
                                     InpuType::InCSV                 => { (e.job.birth, e.job.death - 1) },
                                     InpuType::InExCSV               => { (e.job.birth, e.job.death) },
-                                    InpuType::PLC | InpuType::ExCSV => { (e.job.birth, e.job.death + num_generations + 1) },
+                                    InpuType::PLC | InpuType::ExCSV => { (e.job.birth + num_generations, e.job.death + num_generations + 1) },
                                     InpuType::TRC                   => { unimplemented!(); },
                                 }
                             },

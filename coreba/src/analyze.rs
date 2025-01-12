@@ -205,7 +205,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         let (_, small_end, big_end, _) = instance.ctrl_prelude();
         assert!(small_end < big_end);
         let (epsilon, pre_boxed) = init_rogue(instance.clone(), small_end, big_end);
-        println!("Prelude overhead: {:.2} secs", prelude_cost.elapsed().as_secs_f64());
+        println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
         AnalysisResult::NeedsBA(BACtrl {
             input:      instance,
             pre_boxed,
