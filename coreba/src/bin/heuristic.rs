@@ -124,17 +124,21 @@ fn main() {
         JobOrdering::Random => {
             let mut shuffled_ids: Vec<u32> = registry.values().map(|pj| pj.descr.id).collect();
             let mut rng = rand::thread_rng();
+            let mut iters = 0;
             loop {
                 shuffled_ids.shuffle(&mut rng);
                 let ordered = shuffled_ids.iter().map(|id| registry.get(id).unwrap().clone()).collect();
-                let test_makespan = gen_placement(ordered, &ig, cli.fit, cli.start);
+                let test_makespan = gen_placement(ordered, &ig, cli.fit, cli.start, best_makespan, iters);
                 if test_makespan == load { break test_makespan; }
                 if test_makespan < best_makespan {
                     best_makespan = test_makespan;
                     lives_left = cli.lives + 1;
                 }
                 lives_left -= 1;
-                if lives_left > 0 { continue; }
+                if lives_left > 0 { 
+                    iters += 1;
+                    continue; 
+                }
                 break best_makespan;
             }
         },
@@ -160,7 +164,7 @@ fn main() {
                 },
                 JobOrdering::Random => { panic!("Unreachable branch reached."); }
             };
-            gen_placement(ordered, &ig, cli.fit, cli.start)
+            gen_placement(ordered, &ig, cli.fit, cli.start, usize::MAX, 0)
         },
     };
 
@@ -180,6 +184,8 @@ fn gen_placement(
     ig:         &Option<InterferenceGraph>,
     fit:        JobFit,
     start:      ByteSteps,
+    makesp_lim: ByteSteps,
+    iters:      u32,
 ) -> ByteSteps {
     let mut symbolic_offset = 0;
     for pj in ordered.iter() {
@@ -191,8 +197,8 @@ fn gen_placement(
         do_best_fit(
             ordered.into_iter().collect(),
             g,
-            1, 
-            usize::MAX, 
+            iters, 
+            makesp_lim, 
             fit,
             start)
     } else {
