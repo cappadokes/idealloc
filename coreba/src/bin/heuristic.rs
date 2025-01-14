@@ -2,6 +2,7 @@ use std::usize;
 
 use algo::placement::do_best_fit;
 use coreba::*;
+use rand::prelude::*;
 
 /// A heuristics generator for dynamic storage allocation
 #[derive(Parser, Debug)]
@@ -119,67 +120,48 @@ fn main() {
     let total = Instant::now();
     let mut lives_left = cli.lives;
     let mut best_makespan = usize::MAX;
-    let makespan = loop {
-        let ordered: PlacedJobSet = match cli.order {
-            JobOrdering::Birth  => {
-                registry.values()
-                    .sorted_by(|a, b| a.descr.birth.cmp(&b.descr.birth))
-                    .cloned()
-                    .collect()
-            },
-            JobOrdering::Area   => {
-                registry.values()
-                    .sorted_by(|a, b| b.descr.area().cmp(&a.descr.area()))
-                    .cloned()
-                    .collect()
-            },
-            JobOrdering::Size   => {
-                registry.values()
-                    .sorted_by(|a, b| b.descr.size.cmp(&a.descr.size))
-                    .cloned()
-                    .collect()
-            },
-            JobOrdering::Random => {
-                registry.values()
-                    .cloned()
-                    .permutations(set.len())
-                    .take(1)
-                    .next()
-                    .unwrap()
+    let makespan = match cli.order {
+        JobOrdering::Random => {
+            let mut shuffled_ids: Vec<u32> = registry.values().map(|pj| pj.descr.id).collect();
+            let mut rng = rand::thread_rng();
+            loop {
+                shuffled_ids.shuffle(&mut rng);
+                let ordered = shuffled_ids.iter().map(|id| registry.get(id).unwrap().clone()).collect();
+                let test_makespan = gen_placement(ordered, &ig, cli.fit, cli.start);
+                if test_makespan == load { break test_makespan; }
+                if test_makespan < best_makespan {
+                    best_makespan = test_makespan;
+                    lives_left = cli.lives + 1;
+                }
+                lives_left -= 1;
+                if lives_left > 0 { continue; }
+                break best_makespan;
             }
-        };
-
-        let mut symbolic_offset = 0;
-        for pj in ordered.iter() {
-            pj.offset.set(symbolic_offset);
-            symbolic_offset += 1;
-        }
-        let test_makespan = if let Some(ref g) = ig {
-            let fit = if let JobFit::Best = cli.fit { false } else { true };
-            do_best_fit(
-                ordered.into_iter().collect(),
-                g,
-                1, 
-                usize::MAX, 
-                fit,
-                cli.start)
-        } else {
-            do_naive_fit(
-                ordered.into_iter().collect(),
-                cli.fit,
-                cli.start) 
-        };
-
-        if let JobOrdering::Random = cli.order {
-            if test_makespan == load { break test_makespan; }
-            if test_makespan < best_makespan {
-                best_makespan = test_makespan;
-                lives_left = cli.lives + 1;
-            }
-            lives_left -= 1;
-            if lives_left > 0 { continue; }
-        };
-        break test_makespan;
+        },
+        _   => {
+            let ordered: PlacedJobSet = match cli.order {
+                JobOrdering::Birth  => {
+                    registry.values()
+                        .sorted_by(|a, b| a.descr.birth.cmp(&b.descr.birth))
+                        .cloned()
+                        .collect()
+                },
+                JobOrdering::Area   => {
+                    registry.values()
+                        .sorted_by(|a, b| b.descr.area().cmp(&a.descr.area()))
+                        .cloned()
+                        .collect()
+                },
+                JobOrdering::Size   => {
+                    registry.values()
+                        .sorted_by(|a, b| b.descr.size.cmp(&a.descr.size))
+                        .cloned()
+                        .collect()
+                },
+                JobOrdering::Random => { panic!("Unreachable branch reached."); }
+            };
+            gen_placement(ordered, &ig, cli.fit, cli.start)
+        },
     };
 
     println!(
@@ -191,6 +173,34 @@ fn main() {
         load, 
         (makespan - load) as f64 / load as f64 * 100.0
     );
+}
+
+fn gen_placement(
+    ordered:    PlacedJobSet,
+    ig:         &Option<InterferenceGraph>,
+    fit:        JobFit,
+    start:      ByteSteps,
+) -> ByteSteps {
+    let mut symbolic_offset = 0;
+    for pj in ordered.iter() {
+        pj.offset.set(symbolic_offset);
+        symbolic_offset += 1;
+    }
+    if let Some(ref g) = ig {
+        let fit = if let JobFit::Best = fit { false } else { true };
+        do_best_fit(
+            ordered.into_iter().collect(),
+            g,
+            1, 
+            usize::MAX, 
+            fit,
+            start)
+    } else {
+        do_naive_fit(
+            ordered.into_iter().collect(),
+            fit,
+            start) 
+    }
 }
 
 /// A fitting function which does not use an
