@@ -283,10 +283,12 @@ pub struct PlacedJob {
 }
 
 impl PlacedJob {
+    #[inline(always)]
     pub fn overlaps_with(&self, other: &Self) -> bool {
         self.descr.birth < other.descr.death &&
         other.descr.birth < self.descr.death
     }
+
     #[inline(always)]
     pub fn new(descr: Arc<Job>) -> Self {
         Self {
@@ -301,7 +303,7 @@ impl PlacedJob {
         self.offset.get() + self.descr.size
     }
 
-    /// Returns a [naturally aligned](https://docs.kernel.org/core-api/unaligned-memory-access.html)
+    /// Returns an appropriately aligned
     /// offset for the job.
     #[inline(always)]
     pub fn get_corrected_offset(
@@ -309,17 +311,15 @@ impl PlacedJob {
         start_addr: ByteSteps,
         cand:       ByteSteps
     ) -> ByteSteps {
-        let job_size = self.descr.size;
-        let cand_addr = start_addr + cand;
-        if cand_addr == 0 || cand_addr % job_size == 0 { cand }
-        else if cand_addr < job_size {
-            // Offset is the job size itself.
-            job_size - start_addr
-        } else {
-            // Initial candidate address is bigger than the
-            // job size, but not a multiple of it.
-            (cand_addr / job_size + 1) * job_size - start_addr
-        }
+        if let Some(a) = self.descr.alignment {
+            let cand_addr = start_addr + cand;
+            if cand_addr == 0 || cand_addr % a == 0 { cand }
+            else if cand_addr < a {
+                a - start_addr
+            } else {
+                (cand_addr / a + 1) * a - start_addr
+            }
+        } else { cand }
     }
 }
 
