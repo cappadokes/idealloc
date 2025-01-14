@@ -1,3 +1,6 @@
+use std::usize;
+
+use algo::placement::do_best_fit;
 use coreba::*;
 
 /// A heuristics generator for dynamic storage allocation
@@ -24,6 +27,12 @@ struct Args {
     /// Job fitting
     #[arg(value_enum)]
     fit:    JobFit,
+
+    /// Whether to use an interference graph
+    /// or not (speeds up things)
+    #[arg(short, long, default_value_t = false)]
+    #[arg(value_parser = clap::value_parser!(bool))]
+    graph:  bool
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -66,12 +75,42 @@ fn main() {
         InpuType::TRC   => {
             panic!("TRC files must first pass through the adapter.");
         }
-    }.unwrap();
-    let total = Instant::now();
-    let registry = set.iter()
+    }.unwrap(); 
+    let (ig, registry): (Option<InterferenceGraph>, PlacedJobRegistry) = if cli.graph {
+        let mut registry: PlacedJobRegistry = HashMap::new();
+        let mut events = get_events(&set);
+        let mut res: InterferenceGraph = HashMap::new();
+        let mut live: PlacedJobRegistry = HashMap::new();
+        while let Some(e) = events.pop() {
+            match e.evt_t {
+                EventKind::Birth    => {
+                    let init_vec: PlacedJobSet = live.values()
+                        .cloned()
+                        .collect();
+                    let new_entry = Rc::new(PlacedJob::new(e.job.clone()));
+                    // First, add a new entry, initialized to the currently live jobs.
+                    res.insert(e.job.id, init_vec);
+                    registry.insert(e.job.id, new_entry.clone());
+                    for (_, j) in &live {
+                        // Update currently live jobs' vectors with the new entry.
+                        let vec_handle = res.get_mut(&j.descr.id).unwrap();
+                        vec_handle.push(new_entry.clone());
+                    }
+                    // Add new entry to currently live jobs.
+                    live.insert(e.job.id, new_entry);
+                },
+                EventKind::Death    => {
+                    assert!(live.remove(&e.job.id).is_some());
+                },
+            }
+        }
+
+        (Some(res), registry)
+    } else { (None, set.iter()
         .cloned()
         .map(|j| (j.get_id(), Rc::new(PlacedJob::new(j))))
-        .collect::<PlacedJobRegistry>();
+        .collect::<PlacedJobRegistry>()) };
+    let total = Instant::now();
     let ordered: PlacedJobSet = match cli.order {
         JobOrdering::Birth  => {
             registry.values()
@@ -106,11 +145,21 @@ fn main() {
         pj.offset.set(symbolic_offset);
         symbolic_offset += 1;
     }
-    let makespan = do_naive_fit(
-        ordered.into_iter().collect(),
-        cli.fit,
-        cli.start,
-    );
+    let makespan = if let Some(ref g) = ig {
+        let fit = if let JobFit::Best = cli.fit { false } else { true };
+        do_best_fit(
+            ordered.into_iter().collect(),
+            g,
+            1, 
+            usize::MAX, 
+            fit,
+            cli.start)
+    } else {
+        do_naive_fit(
+            ordered.into_iter().collect(),
+            cli.fit,
+            cli.start) 
+    };
 
     println!(
         "Total allocation time: {} μs",
