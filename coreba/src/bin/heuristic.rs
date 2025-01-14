@@ -29,10 +29,15 @@ struct Args {
     fit:    JobFit,
 
     /// Whether to use an interference graph
-    /// or not (speeds up things)
+    /// or not (speeds up things).
     #[arg(short, long, default_value_t = false)]
     #[arg(value_parser = clap::value_parser!(bool))]
-    graph:  bool
+    graph:  bool,
+
+    /// Number of lives in the case of random ordering.
+    #[arg(short, long, default_value_t = 1)]
+    #[arg(value_parser = clap::value_parser!(ByteSteps))]
+    lives:  ByteSteps,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -76,6 +81,7 @@ fn main() {
             panic!("TRC files must first pass through the adapter.");
         }
     }.unwrap(); 
+    let load = get_load(&set);
     let (ig, registry): (Option<InterferenceGraph>, PlacedJobRegistry) = if cli.graph {
         let mut registry: PlacedJobRegistry = HashMap::new();
         let mut events = get_events(&set);
@@ -111,61 +117,75 @@ fn main() {
         .map(|j| (j.get_id(), Rc::new(PlacedJob::new(j))))
         .collect::<PlacedJobRegistry>()) };
     let total = Instant::now();
-    let ordered: PlacedJobSet = match cli.order {
-        JobOrdering::Birth  => {
-            registry.values()
-                .sorted_by(|a, b| a.descr.birth.cmp(&b.descr.birth))
-                .cloned()
-                .collect()
-        },
-        JobOrdering::Area   => {
-            registry.values()
-                .sorted_by(|a, b| b.descr.area().cmp(&a.descr.area()))
-                .cloned()
-                .collect()
-        },
-        JobOrdering::Size   => {
-            registry.values()
-                .sorted_by(|a, b| b.descr.size.cmp(&a.descr.size))
-                .cloned()
-                .collect()
-        },
-        JobOrdering::Random => {
-            registry.values()
-                .cloned()
-                .permutations(set.len())
-                .take(1)
-                .next()
-                .unwrap()
-        }
-    };
+    let mut lives_left = cli.lives;
+    let mut best_makespan = usize::MAX;
+    let makespan = loop {
+        let ordered: PlacedJobSet = match cli.order {
+            JobOrdering::Birth  => {
+                registry.values()
+                    .sorted_by(|a, b| a.descr.birth.cmp(&b.descr.birth))
+                    .cloned()
+                    .collect()
+            },
+            JobOrdering::Area   => {
+                registry.values()
+                    .sorted_by(|a, b| b.descr.area().cmp(&a.descr.area()))
+                    .cloned()
+                    .collect()
+            },
+            JobOrdering::Size   => {
+                registry.values()
+                    .sorted_by(|a, b| b.descr.size.cmp(&a.descr.size))
+                    .cloned()
+                    .collect()
+            },
+            JobOrdering::Random => {
+                registry.values()
+                    .cloned()
+                    .permutations(set.len())
+                    .take(1)
+                    .next()
+                    .unwrap()
+            }
+        };
 
-    let mut symbolic_offset = 0;
-    for pj in ordered.iter() {
-        pj.offset.set(symbolic_offset);
-        symbolic_offset += 1;
-    }
-    let makespan = if let Some(ref g) = ig {
-        let fit = if let JobFit::Best = cli.fit { false } else { true };
-        do_best_fit(
-            ordered.into_iter().collect(),
-            g,
-            1, 
-            usize::MAX, 
-            fit,
-            cli.start)
-    } else {
-        do_naive_fit(
-            ordered.into_iter().collect(),
-            cli.fit,
-            cli.start) 
+        let mut symbolic_offset = 0;
+        for pj in ordered.iter() {
+            pj.offset.set(symbolic_offset);
+            symbolic_offset += 1;
+        }
+        let test_makespan = if let Some(ref g) = ig {
+            let fit = if let JobFit::Best = cli.fit { false } else { true };
+            do_best_fit(
+                ordered.into_iter().collect(),
+                g,
+                1, 
+                usize::MAX, 
+                fit,
+                cli.start)
+        } else {
+            do_naive_fit(
+                ordered.into_iter().collect(),
+                cli.fit,
+                cli.start) 
+        };
+
+        if let JobOrdering::Random = cli.order {
+            if test_makespan == load { break test_makespan; }
+            if test_makespan < best_makespan {
+                best_makespan = test_makespan;
+                lives_left = cli.lives + 1;
+            }
+            lives_left -= 1;
+            if lives_left > 0 { continue; }
+        };
+        break test_makespan;
     };
 
     println!(
         "Total allocation time: {} μs",
         total.elapsed().as_micros()
     );
-    let load = get_load(&set);
     println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", 
         makespan, 
         load, 
