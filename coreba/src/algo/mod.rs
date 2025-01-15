@@ -139,6 +139,7 @@ pub fn idealloc(
                 if current_opt < best_opt {
                     debug_assert!(placement_is_valid(&ig_reg));
                     best_opt = current_opt;
+                    println!("Beating heuristic by {} bytes! ({total_iters} iterations)", heuristic_opt - best_opt);
                     lives_left = max_lives + 1;
                     final_placement = ig_reg.1
                         .values()
@@ -156,12 +157,14 @@ pub fn idealloc(
             };
 
             println!(
-                "\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nDeaths hardness:\t{:.2}%\nCompound hardness:\t{:.2}\n{:.2}% less fragmentation against heuristic.\n",
+                //"\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nDeaths hardness:\t{:.2}%\nCompound hardness:\t{:.2}\n{:.2}% less fragmentation against heuristic.\n",
+                "\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nDeaths hardness:\t{:.2}%\nCompound hardness:\t{:.2}\n{} fewer bytes than heuristic.\n",
                 hardness.0 * 100.0,
                 hardness.1 * 100.0,
                 hardness.2 * 100.0,
                 (1.0 + hardness.0) * (1.0 + hardness.1) * (1.0 + hardness.2),
-                (heuristic_opt - best_opt) as f64 / real_load as f64 * 100.0
+                //(heuristic_opt - best_opt) as f64 / real_load as f64 * 100.0
+                heuristic_opt - best_opt
             );
 
             (
