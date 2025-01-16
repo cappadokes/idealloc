@@ -140,7 +140,6 @@ pub fn idealloc(
                     debug_assert!(placement_is_valid(&ig_reg));
                     best_opt = current_opt;
                     println!("Beating heuristic by {} bytes! ({total_iters} iterations)", heuristic_opt - best_opt);
-                    lives_left = max_lives + 1;
                     final_placement = ig_reg.1
                         .values()
                         .map(|pj| {

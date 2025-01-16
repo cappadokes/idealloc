@@ -132,7 +132,6 @@ fn main() {
                 if test_makespan == load { break test_makespan; }
                 if test_makespan < best_makespan {
                     best_makespan = test_makespan;
-                    lives_left = cli.lives + 1;
                 }
                 lives_left -= 1;
                 if lives_left > 0 { 
