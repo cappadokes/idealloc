@@ -155,9 +155,10 @@ pub fn idealloc(
                 } else { break; }
             };
 
+            let num_buffers = ig_reg.1.len();
             println!(
                 //"\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nDeaths hardness:\t{:.2}%\nCompound hardness:\t{:.2}\n{:.2}% less fragmentation against heuristic.\n",
-                "\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nDeaths hardness:\t{:.2}%\nCompound hardness:\t{:.2}\n{} fewer bytes than heuristic.\n",
+                "\n Buffers treated:\t{num_buffers}\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nDeaths hardness:\t{:.2}%\nCompound hardness:\t{:.2}\n{} fewer bytes than heuristic.\n",
                 hardness.0 * 100.0,
                 hardness.1 * 100.0,
                 hardness.2 * 100.0,
