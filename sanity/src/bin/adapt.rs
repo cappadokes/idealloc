@@ -53,15 +53,15 @@ fn main() {
                                 match cli.output_format {
                                     InpuType::InCSV                 => {
                                         let new_birth = e.job.birth.checked_sub(num_generations).unwrap();
-                                        let new_death = e.job.death.checked_sub(num_generations + 2).unwrap();
+                                        let new_death = e.job.death.checked_sub(num_generations + 1).unwrap();
 
-                                        (new_birth, new_death)
+                                        (new_birth + 1, new_death)
                                     },
                                     InpuType::InExCSV               => {
                                         let new_birth = e.job.birth.checked_sub(num_generations).unwrap();
-                                        let new_death = e.job.death.checked_sub(num_generations + 1).unwrap();
+                                        let new_death = e.job.death.checked_sub(num_generations).unwrap();
 
-                                        (new_birth, new_death)
+                                        (new_birth + 1, new_death)
                                     },
                                     InpuType::PLC | InpuType::ExCSV => { (e.job.birth, e.job.death) },
                                     InpuType::TRC                   => { unimplemented!(); },

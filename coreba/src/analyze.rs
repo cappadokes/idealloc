@@ -115,8 +115,6 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         // heuristic--we thus keep it as a fallback solution.
         //
         // It's "sort by size-and-lifetime and do first-fit".
-        //
-        // (we would go for best-fit if latency wasn't of the essence)
         let ordered: PlacedJobSet = registry.values()
             .sorted_by(|a, b| { 
                 b.descr
