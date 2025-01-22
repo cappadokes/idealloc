@@ -1460,8 +1460,8 @@ impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
                         Arc::new(
                             Job {
                                 size:               e.job.size,
-                                birth:              e.job.birth + num_generations,
-                                death:              e.job.death + shift + num_generations,
+                                birth:              e.job.birth,
+                                death:              e.job.death + shift,
                                 req_size:           e.job.size,
                                 alignment:          None,
                                 contents:           None,

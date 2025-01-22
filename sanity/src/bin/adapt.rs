@@ -52,16 +52,10 @@ fn main() {
                             InpuType::PLC | InpuType::ExCSV   => {
                                 match cli.output_format {
                                     InpuType::InCSV                 => {
-                                        let new_birth = e.job.birth.checked_sub(num_generations).unwrap();
-                                        let new_death = e.job.death.checked_sub(num_generations + 1).unwrap();
-
-                                        (new_birth + 1, new_death)
+                                        (e.job.birth + 2, e.job.death)
                                     },
                                     InpuType::InExCSV               => {
-                                        let new_birth = e.job.birth.checked_sub(num_generations).unwrap();
-                                        let new_death = e.job.death.checked_sub(num_generations).unwrap();
-
-                                        (new_birth + 1, new_death)
+                                        (e.job.birth + 1, e.job.death)
                                     },
                                     InpuType::PLC | InpuType::ExCSV => { (e.job.birth, e.job.death) },
                                     InpuType::TRC                   => { unimplemented!(); },
