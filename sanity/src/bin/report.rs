@@ -29,6 +29,8 @@ fn main() {
         .map(|pj| pj.next_avail_offset())
         .max()
         .unwrap();
+    // TODO: There's a bug here. get_load assumes exclusive lifetimes.
+    // MiniMalloc is start-inclusive.
     let load = get_load(
         &set
             .iter()

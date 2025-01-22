@@ -59,7 +59,7 @@ fn main() {
                                     },
                                     InpuType::InExCSV               => {
                                         let new_birth = e.job.birth.checked_sub(num_generations).unwrap();
-                                        let new_death = e.job.death.checked_sub(num_generations + 2).unwrap();
+                                        let new_death = e.job.death.checked_sub(num_generations + 1).unwrap();
 
                                         (new_birth, new_death)
                                     },
