@@ -1447,47 +1447,33 @@ impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
             .into_iter()
             .map(|j| j.descr.clone())
             .collect();
-        let mut events = get_events(&dirty_jobs);
-        let mut retired: PlacedJobSet = vec![];
-        let mut to_retire: HashMap<u32, Rc<PlacedJob>> = HashMap::new();
-        let mut num_generations = 0;
-        let mut last_was_birth = true;
-        while let Some(e) = events.pop() {
-            match e.evt_t {
-                EventKind::Birth    => {
+
+        Ok(
+            dirty_jobs
+                .iter()
+                .map(|job| {
                     let template = Rc::new(
                         PlacedJob::new(
                         Arc::new(
                             Job {
-                                size:               e.job.size,
-                                birth:              e.job.birth,
-                                death:              e.job.death + shift,
-                                req_size:           e.job.size,
+                                size:               job.size,
+                                birth:              job.birth,
+                                death:              job.death + shift,
+                                req_size:           job.size,
                                 alignment:          None,
                                 contents:           None,
                                 originals_boxed:    0,
-                                id: e.job.id,
+                                id:                 job.id,
                             }
                         )
                     ));
                     template.offset.set(
                         cheatsheet.get(&template.descr.id).unwrap().offset.get()
                     );
-                    to_retire.insert(template.descr.id, template);
-                    last_was_birth = true;
-                },
-                EventKind::Death    => {
-                    let to_insert = to_retire.remove(&e.job.id).unwrap();
-                    retired.push(to_insert);
-                    if last_was_birth {
-                        num_generations += 1;
-                        last_was_birth = false;
-                    }
-                }
-            }
-        };
 
-        Ok(retired)
+                    template})
+                .collect()
+        )
     }
     fn gen_single_placed(&self, d: Rc<PlacedJob>, _id: u32) -> Rc<PlacedJob> {
         d

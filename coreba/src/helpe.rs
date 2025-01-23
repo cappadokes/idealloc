@@ -212,54 +212,23 @@ impl JobGen<Job> for IREECSVParser {
             .into_iter()
             .map(|j| Arc::new(j))
             .collect();
-        let mut events = get_events(&dirty_jobs);
-        let mut retired: Vec<Job> = vec![];
-        let mut to_retire: HashMap<u32, Job> = HashMap::new();
-        let mut num_generations = 0;
-        let mut last_was_birth = true;
-        while let Some(e) = events.pop() {
-            match e.evt_t {
-                EventKind::Birth    => {
-                    // The following transformations are made in tandem:
-                    // (i)      both ends of the job are extended by 1 unit. This allows
-                    //          a perfectly valid job of [0, 0] in IREE to be transformed
-                    //          into (-1, 1) in idealloc. Both jobs have the same lifetime
-                    //          in their respective system, equal to 1 unit of time.
-                    //
-                    // (ii)     the job is shifted by 1 unit to the right. idealloc doesn't allow
-                    //          for negative time points. Thus (-1, 1) --> (0, 2)
-                    //
-                    // (iii)    the job is further shifted to the right for as many units
-                    //          as the observed number of "generations", that is, the number of
-                    //          retirement batches that have occurred during this traversal unitl now.
-                    //          Pairs of jobs in both systems now have the same degree of overlap, and
-                    //          hence both instances share the same MAX LOAD. The proof of this statement
-                    //          is described in the paper.
-                    let template = Job {
-                        size:               e.job.size,
-                        birth:              e.job.birth,
-                        death:              e.job.death + shift,
-                        req_size:           e.job.size,
+
+        Ok(
+            dirty_jobs
+                .iter()
+                .map(|job| {
+                    Job {
+                        size:               job.size,
+                        birth:              job.birth,
+                        death:              job.death + shift,
+                        req_size:           job.size,
                         alignment:          None,
                         contents:           None,
                         originals_boxed:    0,
-                        id: e.job.id,
-                    };
-                    to_retire.insert(template.id, template);
-                    last_was_birth = true;
-                },
-                EventKind::Death    => {
-                    let to_insert = to_retire.remove(&e.job.id).unwrap();
-                    retired.push(to_insert);
-                    if last_was_birth {
-                        num_generations += 1;
-                        last_was_birth = false;
-                    }
-                }
-            }
-        };
-
-        Ok(retired)
+                        id:                 job.id,
+                    }})
+                .collect()
+        )
     }
     fn gen_single(&self, d: Job, _id: u32) -> Job {
         d

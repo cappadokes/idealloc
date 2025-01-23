@@ -40,70 +40,54 @@ fn main() {
                 }
             }.unwrap();
             // The jobs have been now read.
-            let mut evts = get_events(&input_set);
-            let mut retired: Vec<Job> = vec![];
-            let mut to_retire: HashMap<u32, Job> = HashMap::new();
-            let mut num_generations = 0;
-            let mut last_was_birth = true;
-            while let Some(e) = evts.pop() {
-                match e.evt_t {
-                    EventKind::Birth    => {
-                        let (birth, death): (ByteSteps, ByteSteps) = match cli.input_format {
-                            InpuType::PLC | InpuType::ExCSV   => {
-                                match cli.output_format {
-                                    InpuType::InCSV                 => {
-                                        (e.job.birth + 2, e.job.death)
-                                    },
-                                    InpuType::InExCSV               => {
-                                        (e.job.birth + 1, e.job.death)
-                                    },
-                                    InpuType::PLC | InpuType::ExCSV => { (e.job.birth, e.job.death) },
-                                    InpuType::TRC                   => { unimplemented!(); },
-                                }
-                            },
-                            InpuType::InCSV => {
-                                match cli.output_format {
-                                    InpuType::InCSV                 => { (e.job.birth, e.job.death) },
-                                    InpuType::InExCSV               => { (e.job.birth, e.job.death + 1) },
-                                    InpuType::PLC | InpuType::ExCSV => { (e.job.birth + num_generations, e.job.death + num_generations + 2) },
-                                    InpuType::TRC                   => { unimplemented!(); },
-                                }
+            let retired = input_set
+                .iter()
+                .map(|job| {
+                    let (birth, death): (ByteSteps, ByteSteps) = match cli.input_format {
+                        InpuType::PLC | InpuType::ExCSV   => {
+                            match cli.output_format {
+                                InpuType::InCSV                 => {
+                                    (job.birth + 2, job.death)
+                                },
+                                InpuType::InExCSV               => {
+                                    (job.birth + 1, job.death)
+                                },
+                                InpuType::PLC | InpuType::ExCSV => { (job.birth, job.death) },
+                                InpuType::TRC                   => { unimplemented!(); },
                             }
-                            InpuType::InExCSV => {
-                                match cli.output_format {
-                                    InpuType::InCSV                 => { (e.job.birth, e.job.death - 1) },
-                                    InpuType::InExCSV               => { (e.job.birth, e.job.death) },
-                                    InpuType::PLC | InpuType::ExCSV => { (e.job.birth + num_generations, e.job.death + num_generations + 1) },
-                                    InpuType::TRC                   => { unimplemented!(); },
-                                }
-                            },
-                            InpuType::TRC   => { panic!("TRC not supported as output format"); }
-                        };
-                        let template = Job {
-                            size:               e.job.size,
-                            birth,
-                            death,
-                            req_size:           e.job.size,
-                            // Opponent allocators don't support alignment.
-                            // We thus eliminate it in all cases.
-                            alignment:          None,
-                            contents:           None,
-                            originals_boxed:    0,
-                            id: e.job.id,
-                        };
-                        to_retire.insert(template.id, template);
-                        last_was_birth = true;
-                    },
-                    EventKind::Death    => {
-                        let to_insert = to_retire.remove(&e.job.id).unwrap();
-                        retired.push(to_insert);
-                        if last_was_birth {
-                            num_generations += 1;
-                            last_was_birth = false;
+                        },
+                        InpuType::InCSV => {
+                            match cli.output_format {
+                                InpuType::InCSV                 => { (job.birth, job.death) },
+                                InpuType::InExCSV               => { (job.birth, job.death + 1) },
+                                InpuType::PLC | InpuType::ExCSV => { (job.birth, job.death + 2) },
+                                InpuType::TRC                   => { unimplemented!(); },
+                            }
                         }
+                        InpuType::InExCSV => {
+                            match cli.output_format {
+                                InpuType::InCSV                 => { (job.birth, job.death - 1) },
+                                InpuType::InExCSV               => { (job.birth, job.death) },
+                                InpuType::PLC | InpuType::ExCSV => { (job.birth, job.death + 1) },
+                                InpuType::TRC                   => { unimplemented!(); },
+                            }
+                        },
+                        InpuType::TRC   => { panic!("TRC not supported as output format"); }
+                    };
+                    Job {
+                        size:               job.size,
+                        birth,
+                        death,
+                        req_size:           job.size,
+                        // Opponent allocators don't support alignment.
+                        // We thus eliminate it in all cases.
+                        alignment:          None,
+                        contents:           None,
+                        originals_boxed:    0,
+                        id:                 job.id,
                     }
-                }
-            }
+                })
+                .collect::<Vec<Job>>();
             // The only remaining thing is for the jobs to be written in the appropriate
             // format.
             let fd = File::options()
