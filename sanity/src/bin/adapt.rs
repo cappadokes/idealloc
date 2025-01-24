@@ -40,54 +40,73 @@ fn main() {
                 }
             }.unwrap();
             // The jobs have been now read.
-            let retired = input_set
-                .iter()
-                .map(|job| {
-                    let (birth, death): (ByteSteps, ByteSteps) = match cli.input_format {
-                        InpuType::PLC | InpuType::ExCSV   => {
-                            match cli.output_format {
-                                InpuType::InCSV                 => {
-                                    (job.birth + 2, job.death)
-                                },
-                                InpuType::InExCSV               => {
-                                    (job.birth + 1, job.death)
-                                },
-                                InpuType::PLC | InpuType::ExCSV => { (job.birth, job.death) },
-                                InpuType::TRC                   => { unimplemented!(); },
-                            }
-                        },
-                        InpuType::InCSV => {
-                            match cli.output_format {
-                                InpuType::InCSV                 => { (job.birth, job.death) },
-                                InpuType::InExCSV               => { (job.birth, job.death + 1) },
-                                InpuType::PLC | InpuType::ExCSV => { (job.birth, job.death + 2) },
-                                InpuType::TRC                   => { unimplemented!(); },
-                            }
+            let mut evts = get_events(&input_set);
+            // Increased by 1 at every first death after a birth.
+            let mut num_generations = 0;
+            // Helper var for increasing generations.
+            let mut last_evt_was_birth = true;
+            // Collects "transformed" jobs.
+            let mut retired: Vec<Job> = vec![];
+            // Keeps live jobs, indexed by ID.
+            let mut live: HashMap<u32, Job> = HashMap::new();
+            while let Some(e) = evts.pop() {
+                match e.evt_t {
+                    EventKind::Birth    => {
+                        if !last_evt_was_birth {
+                            last_evt_was_birth = true;
                         }
-                        InpuType::InExCSV => {
-                            match cli.output_format {
-                                InpuType::InCSV                 => { (job.birth, job.death - 1) },
-                                InpuType::InExCSV               => { (job.birth, job.death) },
-                                InpuType::PLC | InpuType::ExCSV => { (job.birth, job.death + 1) },
-                                InpuType::TRC                   => { unimplemented!(); },
+                        let (birth, death): (ByteSteps, ByteSteps) = match cli.input_format {
+                            InpuType::ExCSV | InpuType::PLC => {
+                                match cli.output_format {
+                                    InpuType::ExCSV | InpuType::PLC => { (e.job.birth, e.job.death) },
+                                    InpuType::InExCSV               => { ((e.job.birth + 1).checked_sub(num_generations).unwrap(), e.job.death.checked_sub(num_generations).unwrap()) },
+                                    InpuType::InCSV                 => { ((e.job.birth + 2).checked_sub(num_generations).unwrap(), e.job.death.checked_sub(num_generations).unwrap()) },
+                                    InpuType::TRC                   => { unimplemented!(); }
+                                }
+                            },
+                            InpuType::InExCSV   => {
+                                match cli.output_format {
+                                    InpuType::ExCSV | InpuType::PLC => { (e.job.birth + num_generations, e.job.death + num_generations + 1) },
+                                    InpuType::InExCSV               => { (e.job.birth, e.job.death) },
+                                    InpuType::InCSV                 => { (e.job.birth, e.job.death.checked_sub(1).unwrap()) },
+                                    InpuType::TRC                   => { unimplemented!(); }
+                                }
+                            },
+                            InpuType::InCSV => {
+                                match cli.output_format {
+                                    InpuType::ExCSV | InpuType::PLC => { (e.job.birth + num_generations, e.job.death + num_generations + 2) },
+                                    InpuType::InExCSV               => { (e.job.birth, e.job.death + 1) },
+                                    InpuType::InCSV                 => { (e.job.birth, e.job.death) },
+                                    InpuType::TRC                   => { unimplemented!(); }
+                                }
+                            },
+                            InpuType::TRC   => { unimplemented!(); }
+                        };
+                        live.insert(
+                            e.job.id,
+                            Job {
+                                size:               e.job.size,
+                                birth,
+                                death,
+                                req_size:           e.job.size,
+                                alignment:          None,
+                                contents:           None,
+                                originals_boxed:    0,
+                                id:                 e.job.id,
                             }
-                        },
-                        InpuType::TRC   => { panic!("TRC not supported as output format"); }
-                    };
-                    Job {
-                        size:               job.size,
-                        birth,
-                        death,
-                        req_size:           job.size,
-                        // Opponent allocators don't support alignment.
-                        // We thus eliminate it in all cases.
-                        alignment:          None,
-                        contents:           None,
-                        originals_boxed:    0,
-                        id:                 job.id,
-                    }
-                })
-                .collect::<Vec<Job>>();
+
+                        );
+                    },
+                    EventKind::Death    => {
+                        if last_evt_was_birth {
+                            num_generations += 1;
+                            last_evt_was_birth = false;
+                        };
+                        retired.push(live.remove(&e.job.id).unwrap());
+                    },
+                }
+            };
+
             // The only remaining thing is for the jobs to be written in the appropriate
             // format.
             let fd = File::options()

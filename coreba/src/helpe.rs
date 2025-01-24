@@ -212,23 +212,46 @@ impl JobGen<Job> for IREECSVParser {
             .into_iter()
             .map(|j| Arc::new(j))
             .collect();
+        let mut evts = get_events(&dirty_jobs);
+        // Increased by 1 at every first death after a birth.
+        let mut num_generations = 0;
+        // Helper var for increasing generations.
+        let mut last_evt_was_birth = true;
+        // Collects "transformed" jobs.
+        let mut res = vec![];
+        // Keeps live jobs, indexed by ID.
+        let mut live: HashMap<u32, Job> = HashMap::new();
+        while let Some(e) = evts.pop() {
+            match e.evt_t {
+                EventKind::Birth    => {
+                    if !last_evt_was_birth {
+                        last_evt_was_birth = true;
+                    }
+                    live.insert(
+                        e.job.id,
+                        Job {
+                            size:               e.job.size,
+                            birth:              e.job.birth + num_generations,
+                            death:              e.job.death + num_generations + shift,
+                            req_size:           e.job.size,
+                            alignment:          None,
+                            contents:           None,
+                            originals_boxed:    0,
+                            id:                 e.job.id,
+                        }
+                    );
+                },
+                EventKind::Death    => {
+                    if last_evt_was_birth {
+                        num_generations += 1;
+                        last_evt_was_birth = false;
+                    };
+                    res.push(live.remove(&e.job.id).unwrap());
+                },
+            }
+        };
 
-        Ok(
-            dirty_jobs
-                .iter()
-                .map(|job| {
-                    Job {
-                        size:               job.size,
-                        birth:              job.birth,
-                        death:              job.death + shift,
-                        req_size:           job.size,
-                        alignment:          None,
-                        contents:           None,
-                        originals_boxed:    0,
-                        id:                 job.id,
-                    }})
-                .collect()
-        )
+        Ok(res)
     }
     fn gen_single(&self, d: Job, _id: u32) -> Job {
         d
