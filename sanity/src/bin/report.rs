@@ -9,6 +9,10 @@ struct Arg {
     #[arg(short, long, value_parser = clap::value_parser!(PathBuf))]
     input:  PathBuf,
 
+    /// Input format
+    #[arg(value_enum)]
+    input_format:   InpuType,
+
     /// Base address of the instance
     #[arg(short, long, value_parser = clap::value_parser!(ByteSteps))]
     start:  ByteSteps,
@@ -19,12 +23,24 @@ fn main() {
     let input_path = cli.input;
     assert!(input_path.exists() && input_path.is_file(), "File does not exist");
 
-    let set: PlacedJobSet = if input_path.extension().unwrap() == "plc" {
-        read_placed_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0).unwrap()
-    } else if input_path.extension().unwrap() == "csv" {
-        assert!(cli.start == 0, "minimalloc is always assumed to assign zero as base offset");
-        read_placed_from_path::<IREECSVParser, Rc<PlacedJob>>(input_path, 1).unwrap()
-    } else { panic!("Only file types accepted are (i) idealloc-produced PLCs and (ii) minimalloc-produced CSVs"); };
+    let set: PlacedJobSet = match cli.input_format {
+        InpuType::PLC   => {
+            read_placed_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0).unwrap()
+        },
+        InpuType::InExCSV   => {
+            assert!(cli.start == 0, "minimalloc is always assumed to assign zero as base offset");
+            read_placed_from_path::<IREECSVParser, Rc<PlacedJob>>(input_path, 1).unwrap()
+        },
+        InpuType::InCSV => {
+            read_placed_from_path::<IREECSVParser, Rc<PlacedJob>>(input_path, 2).unwrap()
+        },
+        InpuType::ExCSV => {
+            read_placed_from_path::<MinimalloCSVParser, &[ByteSteps; 4]>(input_path, 2).unwrap()
+        },
+        InpuType::TRC   => {
+            panic!("TRC not supported");
+        }
+    };
     let makespan = set.iter()
         .map(|pj| pj.next_avail_offset())
         .max()
