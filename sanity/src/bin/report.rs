@@ -7,7 +7,7 @@ use coreba::*;
 struct Arg {
     /// Path to input (either PLC, or minimalloc-produced CSV)
     #[arg(short, long, value_parser = clap::value_parser!(PathBuf))]
-    input:  PathBuf,
+    input:          PathBuf,
 
     /// Input format
     #[arg(value_enum)]
@@ -15,7 +15,10 @@ struct Arg {
 
     /// Base address of the instance
     #[arg(short, long, value_parser = clap::value_parser!(ByteSteps))]
-    start:  ByteSteps,
+    start:          ByteSteps,
+
+    #[arg(short, long, value_parser = clap::value_parser!(bool))]
+    generations:    bool,
 }
 
 fn main() {
@@ -25,17 +28,17 @@ fn main() {
 
     let set: PlacedJobSet = match cli.input_format {
         InpuType::PLC   => {
-            read_placed_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0).unwrap()
+            read_placed_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0, cli.generations).unwrap()
         },
         InpuType::InExCSV   => {
             assert!(cli.start == 0, "minimalloc is always assumed to assign zero as base offset");
-            read_placed_from_path::<IREECSVParser, Rc<PlacedJob>>(input_path, 1).unwrap()
+            read_placed_from_path::<IREECSVParser, Rc<PlacedJob>>(input_path, 1, cli.generations).unwrap()
         },
         InpuType::InCSV => {
-            read_placed_from_path::<IREECSVParser, Rc<PlacedJob>>(input_path, 2).unwrap()
+            read_placed_from_path::<IREECSVParser, Rc<PlacedJob>>(input_path, 2, cli.generations).unwrap()
         },
         InpuType::ExCSV => {
-            read_placed_from_path::<MinimalloCSVParser, &[ByteSteps; 4]>(input_path, 2).unwrap()
+            read_placed_from_path::<MinimalloCSVParser, &[ByteSteps; 4]>(input_path, 2, cli.generations).unwrap()
         },
         InpuType::TRC   => {
             panic!("TRC not supported");

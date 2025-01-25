@@ -1351,14 +1351,14 @@ use coreba::*;
 /// reads already-placed jobs.
 pub trait PlacedJobGen<T> {
     fn new_placed(path: PathBuf) -> Self;
-    fn read_placed_jobs(&self, shift: ByteSteps) -> Result<Vec<Rc<PlacedJob>>, Box<dyn std::error::Error>>;
+    fn read_placed_jobs(&self, shift: ByteSteps, use_gens: bool) -> Result<Vec<Rc<PlacedJob>>, Box<dyn std::error::Error>>;
     fn gen_single_placed(&self, d: T, id: u32) -> Rc<PlacedJob>;
 }
 
-pub fn read_placed_from_path<T, B>(file_path: PathBuf, shift: ByteSteps) -> Result<PlacedJobSet, Box<dyn std::error::Error>> 
+pub fn read_placed_from_path<T, B>(file_path: PathBuf, shift: ByteSteps, use_gens: bool) -> Result<PlacedJobSet, Box<dyn std::error::Error>> 
 where T: PlacedJobGen<B> {
     let parser = T::new_placed(file_path);
-    let jobs = parser.read_placed_jobs(shift)?;
+    let jobs = parser.read_placed_jobs(shift, use_gens)?;
     assert!(jobs.len() > 0);
 
     Ok(jobs)
@@ -1371,7 +1371,7 @@ impl PlacedJobGen<&[ByteSteps; 4]> for MinimalloCSVParser {
         }
     }
   
-    fn read_placed_jobs(&self, _: ByteSteps) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
+    fn read_placed_jobs(&self, _: ByteSteps, _: bool) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
         let mut res = vec![];
         let mut data_buf: [ByteSteps; 4] = [0; 4];
         let mut next_id = 0;
@@ -1433,11 +1433,11 @@ impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
         }
     }
 
-    fn read_placed_jobs(&self, shift: ByteSteps) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
+    fn read_placed_jobs(&self, shift: ByteSteps, use_gens: bool) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
         let helper = MinimalloCSVParser::new_placed(self.dirty.clone());
         // These are the 'original' placed jobs. We will preserve their offsets,
         // and change everything else.
-        let ground_truth = helper.read_placed_jobs(0).unwrap();
+        let ground_truth = helper.read_placed_jobs(0, true).unwrap();
         let cheatsheet: PlacedJobRegistry = ground_truth
             .iter()
             .map(|pj| (pj.descr.id, pj.clone()))
@@ -1462,6 +1462,7 @@ impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
                     if !last_evt_was_birth {
                         last_evt_was_birth = true;
                     }
+                    if !use_gens { num_generations = 0; }
                     live.insert(
                         e.job.id,
                         Job {
@@ -1537,7 +1538,7 @@ impl PlacedJobGen<&[u8; 8 * PLC_FIELDS_NUM]> for PLCParser {
         Rc::new(res)
     }
 
-    fn read_placed_jobs(&self, _: ByteSteps) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
+    fn read_placed_jobs(&self, _: ByteSteps, _: bool) -> Result<PlacedJobSet, Box<dyn std::error::Error>> {
         let path = self.path.as_path();
         let mut res = vec![];
         match std::fs::metadata(path) {

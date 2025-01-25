@@ -59,8 +59,8 @@ fn main() {
                             InpuType::ExCSV | InpuType::PLC => {
                                 match cli.output_format {
                                     InpuType::ExCSV | InpuType::PLC => { (e.job.birth, e.job.death) },
-                                    InpuType::InExCSV               => { ((e.job.birth + 1).checked_sub(num_generations).unwrap(), e.job.death.checked_sub(num_generations).unwrap()) },
-                                    InpuType::InCSV                 => { ((e.job.birth + 2).checked_sub(num_generations).unwrap(), e.job.death.checked_sub(num_generations).unwrap()) },
+                                    InpuType::InExCSV               => { num_generations = 0; ((e.job.birth + 1).checked_sub(num_generations).unwrap(), e.job.death.checked_sub(num_generations).unwrap()) },
+                                    InpuType::InCSV                 => { num_generations = 0; ((e.job.birth + 2).checked_sub(num_generations).unwrap(), e.job.death.checked_sub(num_generations).unwrap()) },
                                     InpuType::TRC                   => { unimplemented!(); }
                                 }
                             },
