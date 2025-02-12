@@ -1,33 +1,41 @@
 pub mod boxing;
 pub mod placement;
 
+use placement::do_best_fit;
+
 use crate::{
     helpe::*,
-    analyze::prelude_analysis,
+    analyze::{
+        prelude_analysis,
+        placement_is_valid,
+    }
 };
 use self::boxing::{
     c_15,
     rogue,
 };
 
-/// `idealloc` is, in its non-trivial case, probabilistic.
-/// It tries different placements again and again in a loop
-/// and picks the best one. This constant controls the
-/// maximum allowable number of iterations.
-/// 
-/// To be replaced later with a more sophisticated value.
-pub const MAX_ITERS: u32 = 100;
-
 /// Assigns proper offsets to each buffer in `JobSet`,
 /// so that the resulting memory fragmentation is at
 /// most (`worst_case_frag` - 1.0) * 100.0 percent.
+/// Address space is assumed to start at `start_address`.
+/// All offsets are relative to that one.
+/// 
+/// `idealloc` is, in its non-trivial case, probabilistic.
+/// It tries different placements again and again in a loop
+/// and picks the best one. This constant controls the maximum
+/// number of iterations allowed to `idealloc` to outperform its
+/// last best placement. The *total* number of iterations is
+/// thus stochastic.
 /// 
 /// Returns the placement itself, and the corresponding
 /// makespan. If worst-case-fragmentation was exceeded,
 /// the immediately next best achieved placement is returned.
-pub fn main_loop(
+pub fn idealloc(
     original_input:     JobSet,
     worst_case_frag:    f64,
+    start_address:      ByteSteps,
+    max_lives:          u32,
 ) -> (PlacedJobSet, ByteSteps) {
     // Measure total allocation time.
     let total_start = Instant::now();
@@ -47,39 +55,40 @@ pub fn main_loop(
                 jobs.into_iter()
                     .map(|j| {
                         let placed = PlacedJob::new(j);
-                        placed.offset.set(0);
+                        // Don't forget alignment!
+                        placed.offset.set(placed.get_corrected_offset(start_address, 0));
 
                         Rc::new(placed)
                     })
                     .collect()
             )
         },
-        AnalysisResult::SameSizes(jobs) => {
+        AnalysisResult::SameSizes(jobs, ig, reg) => {
             // Overlapping jobs all sharing the same size can
             // be optimally placed with interval graph coloring.
             //
             // The resulting makespan equals their max load.
             let l = get_load(&jobs);
             let row_size = jobs[0].size;
-            let mut res = vec![];
+            let mut loose: LoosePlacement = BinaryHeap::new();
             for (row_idx, igc_row) in interval_graph_coloring(jobs).into_iter()
                                                                     .enumerate() {
-                res.append(
-                    &mut igc_row.into_iter()
-                        .map(|j| {
-                            let placed = PlacedJob::new(j);
-                            placed.offset.set(row_idx * row_size);
-
-                            Rc::new(placed)
-                        })
-                        .collect()
-                );
+                for j in igc_row {
+                    let semi_placed = reg.get(&j.id).unwrap();
+                    semi_placed.offset.set(row_idx * row_size);
+                    loose.push(semi_placed.clone());
+                }
             }
 
-            (l, l, res)
+            (
+                l, 
+                do_best_fit(loose, &ig, 0, ByteSteps::MAX, false, start_address), 
+                reg.into_values()
+                    .collect()
+            )
         },
         AnalysisResult::NeedsBA(BACtrl {
-            mut input,
+            input,
             mut pre_boxed,
             to_box,
             epsilon,
@@ -87,11 +96,14 @@ pub fn main_loop(
             dummy,
             ig,
             reg,
-            mu_lim
+            mu_lim,
+            mut best_opt,
+            hardness,
         }) => {
+            let heuristic_opt = best_opt;
             // Initializations...
-            let mut iters_done = 0;
-            let mut best_opt = ByteSteps::MAX;
+            let mut lives_left = max_lives;
+            let mut total_iters = 1;
             let target_opt = (real_load as f64 * worst_case_frag).floor() as ByteSteps;
             let dumb_id = if let Some(ref dum) = dummy {
                 dum.id
@@ -114,16 +126,28 @@ pub fn main_loop(
             loop {
                 let boxed = c_15(pre_boxed.clone(), final_h, mu);
                 debug_assert!(boxed.check_boxed_originals(to_box as u32), "Invalid boxing!");
-                let current_opt = boxed.place(&ig_reg, iters_done, best_opt, dumb_id);
+                let current_opt = boxed.place(&ig_reg, total_iters, best_opt, dumb_id, start_address);
                 debug_assert!(current_opt == ByteSteps::MAX || current_opt >= real_load, "Bad placement");
                 if current_opt < best_opt {
+                    debug_assert!(placement_is_valid(&ig_reg));
                     best_opt = current_opt;
+                    lives_left = max_lives + 1;
                 }
-                iters_done += 1;
-                if iters_done < MAX_ITERS && best_opt > target_opt {
+                total_iters += 1;
+                lives_left -= 1;
+                if lives_left > 0 && best_opt > target_opt {
                     pre_boxed = rogue(input.clone(), epsilon);
                 } else { break; }
             };
+
+            println!(
+                "\nHeights hardness:\t{:.2}%\nConflicts hardness:\t{:.2}%\nLives hardness:\t\t{:.2}%\nHardness product:\t{:.2}%\n{:.2}% less fragmentation against heuristic.\n",
+                hardness.0 * 100.0,
+                hardness.1 * 100.0,
+                hardness.2 * 100.0,
+                hardness.0 * hardness.1 * hardness.2 * 100.0,
+                (heuristic_opt - best_opt) as f64 / real_load as f64 * 100.0
+            );
 
             (
                 real_load,
@@ -140,7 +164,11 @@ pub fn main_loop(
         total_start.elapsed().as_micros()
     );
 
-    println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", best_opt, target_load, (best_opt - target_load) as f64 / target_load as f64 * 100.0);
+    println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", 
+        best_opt, 
+        target_load, 
+        (best_opt - target_load) as f64 / target_load as f64 * 100.0
+    );
 
     (placement, best_opt)
 }

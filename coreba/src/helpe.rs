@@ -13,6 +13,7 @@ pub use std::{
 pub use thiserror::Error;
 pub use itertools::Itertools;
 pub use rayon::prelude::*;
+pub use indexmap::IndexMap;
 
 pub use crate::{Instance, Job,
     jobset::*,
@@ -43,6 +44,7 @@ pub type JobSet = Vec<Arc<Job>>;
 ///
 /// The user can implement their own types as needed.
 pub trait JobGen<T> {
+    fn new(path: PathBuf) -> Self;
     /// Either a set of jobs is successfully returned, or some
     /// arbitrary type that implements [std::error::Error].
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>>;
@@ -67,21 +69,75 @@ pub struct JobError {
 // To write your own interface, simply make sure that it
 // satisfies the `JobGen` trait.
 
+pub struct PLCParser {
+    pub path: PathBuf,
+}
+
+pub const PLC_FIELDS_NUM: usize = 8;
+
+impl JobGen<&[u8; 8 * PLC_FIELDS_NUM]> for PLCParser {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path
+        }
+    }
+    fn gen_single(&self, d: &[u8; 8 * PLC_FIELDS_NUM], _: u32) -> Job {
+        let mut words_read = 0;
+        let mut baby_job = Job::new();
+        while words_read < PLC_FIELDS_NUM {
+            let mut word_buffer: [u8; 8] = [0; 8];
+            for byte_count in 0..8 {
+                word_buffer[byte_count] = d[words_read * 8 + byte_count];
+            }
+            words_read += 1;
+            let data = usize::from_be_bytes(word_buffer);
+            match words_read {
+                1   => { baby_job.id = data.try_into().unwrap(); },
+                2   => { baby_job.birth = data; },
+                3   => { baby_job.death = data; },
+                4   => { baby_job.size = data; },
+                5   => {},
+                6   => {},
+                7   => { if data != 0 { baby_job.alignment = Some(data); }},
+                8   => { baby_job.req_size = data; },
+                _   => { panic!("Unreachable state while parsing PLC."); }
+            }
+        }
+
+        baby_job
+    }
+    fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
+        let path = self.path.as_path();
+        let mut res = vec![];
+        match std::fs::metadata(path) {
+            Ok(_)   => {
+                let fd = std::fs::File::open(path)?;
+                let mut reader = BufReader::new(fd);
+                let mut buffer: [u8; 8 * PLC_FIELDS_NUM] = [0; 8 * PLC_FIELDS_NUM];
+                while let Ok(_) = reader.read_exact(&mut buffer) {
+                    res.push(self.gen_single(&buffer, 62));
+                }
+            },
+            Err(e)  => { return Err(Box::new(e)); }
+        }
+
+        Ok(res)
+    }
+}
+
 /// We adopt [`minimalloc`'s CSV](https://github.com/google/minimalloc)
 /// as the most standard format.
 pub struct MinimalloCSVParser {
     pub path: PathBuf,
 }
 
-impl MinimalloCSVParser {
-    pub fn new(path: PathBuf) -> Self {
+impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
+    fn new(path: PathBuf) -> Self {
         Self {
             path,
         }
     }
-}
-
-impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
+  
     fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let mut res = vec![];
         let mut data_buf: [ByteSteps; 3] = [0; 3];
@@ -131,6 +187,83 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
     }
 }
 
+/// A helper type for parsing IREE-born buffers stored into
+/// the standard minimalloc CSV format.
+/// 
+/// We introduce this additional type because IREE adopts
+/// *inclusive* semantics on both ends of a buffer's lifetime.
+/// Thus conversion is needed.
+pub struct IREECSVParser {
+    dirty:  PathBuf,
+}
+
+impl JobGen<Job> for IREECSVParser {
+    fn new(dirty: PathBuf) -> Self {
+        Self {
+            dirty,
+        }
+    }
+
+    fn read_jobs(&self) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
+        let helper = MinimalloCSVParser::new(self.dirty.clone());
+        let dirty_jobs: JobSet = helper.read_jobs()
+            .unwrap()
+            .into_iter()
+            .map(|j| Arc::new(j))
+            .collect();
+        let mut events = get_events(&dirty_jobs);
+        let mut retired: Vec<Job> = vec![];
+        let mut to_retire: HashMap<u32, Job> = HashMap::new();
+        let mut num_generations = 0;
+        let mut last_was_birth = true;
+        while let Some(e) = events.pop() {
+            match e.evt_t {
+                EventKind::Birth    => {
+                    // The following transformations are made in tandem:
+                    // (i)      both ends of the job are extended by 1 unit. This allows
+                    //          a perfectly valid job of [0, 0] in IREE to be transformed
+                    //          into (-1, 1) in idealloc. Both jobs have the same lifetime
+                    //          in their respective system, equal to 1 unit of time.
+                    //
+                    // (ii)     the job is shifted by 1 unit to the right. idealloc doesn't allow
+                    //          for negative time points. Thus (-1, 1) --> (0, 2)
+                    //
+                    // (iii)    the job is further shifted to the right for as many units
+                    //          as the observed number of "generations", that is, the number of
+                    //          retirement batches that have occurred during this traversal unitl now.
+                    //          Pairs of jobs in both systems now have the same degree of overlap, and
+                    //          hence both instances share the same MAX LOAD. The proof of this statement
+                    //          is described in the paper.
+                    let template = Job {
+                        size:               e.job.size,
+                        birth:              e.job.birth + num_generations,
+                        death:              e.job.death + 2 + num_generations,
+                        req_size:           e.job.size,
+                        alignment:          None,
+                        contents:           None,
+                        originals_boxed:    0,
+                        id: e.job.id,
+                    };
+                    to_retire.insert(template.id, template);
+                    last_was_birth = true;
+                },
+                EventKind::Death    => {
+                    let to_insert = to_retire.remove(&e.job.id).unwrap();
+                    retired.push(to_insert);
+                    if last_was_birth {
+                        num_generations += 1;
+                        last_was_birth = false;
+                    }
+                }
+            }
+        };
+
+        Ok(retired)
+    }
+    fn gen_single(&self, d: Job, _id: u32) -> Job {
+        d
+    }
+}
 //---END EXTERNAL INTERFACES
 
 //---START PLACEMENT PRIMITIVES
@@ -157,8 +290,28 @@ impl PlacedJob {
         }
     }
 
-    pub fn next_avail_addr(&self) -> ByteSteps {
+    pub fn next_avail_offset(&self) -> ByteSteps {
         self.offset.get() + self.descr.size
+    }
+
+    /// Returns a [naturally aligned](https://docs.kernel.org/core-api/unaligned-memory-access.html)
+    /// offset for the job.
+    pub fn get_corrected_offset(
+        &self, 
+        start_addr: ByteSteps,
+        cand:       ByteSteps
+    ) -> ByteSteps {
+        let job_size = self.descr.size;
+        let cand_addr = start_addr + cand;
+        if cand_addr == 0 || cand_addr % job_size == 0 { cand }
+        else if cand_addr < job_size {
+            // Offset is the job size itself.
+            job_size - start_addr
+        } else {
+            // Initial candidate address is bigger than the
+            // job size, but not a multiple of it.
+            (cand_addr / job_size + 1) * job_size - start_addr
+        }
     }
 }
 
@@ -213,13 +366,13 @@ pub enum UnboxCtrl {
 
 pub enum AnalysisResult {
     NoOverlap(JobSet),
-    SameSizes(JobSet),
+    SameSizes(JobSet, InterferenceGraph, PlacedJobRegistry),
     NeedsBA(BACtrl),
 }
 
 pub struct BACtrl {
-    pub input:      Instance,
-    pub pre_boxed:  Instance,
+    pub input:      Rc<Instance>,
+    pub pre_boxed:  Rc<Instance>,
     pub epsilon:    f64,
     pub to_box:     usize,
     pub real_load:  ByteSteps,
@@ -227,6 +380,8 @@ pub struct BACtrl {
     pub ig:         InterferenceGraph,
     pub reg:        PlacedJobRegistry,
     pub mu_lim:     f64,
+    pub best_opt:   ByteSteps,
+    pub hardness:   (f64, f64, f64),
 }
 
 /// Helper structure for Theorem 2.
@@ -312,18 +467,17 @@ impl Ord for Event {
         // We're using a BinaryHeap, which is
         // a max-priority queue. We want a min-one
         // and so we're reversing the order of `cmp`.
-        if self.time != other.time {
-            other.time.cmp(&self.time)
-        } else {
-            if self.evt_t == other.evt_t {
-                std::cmp::Ordering::Equal
-            } else {
-                match self.evt_t {
-                    EventKind::Birth    => { std::cmp::Ordering::Less },
-                    EventKind::Death    => { std::cmp::Ordering::Greater },
-                }
-            }
-        }
+        other.time.cmp(&self.time)
+            .then(
+                if self.evt_t == other.evt_t {
+                    std::cmp::Ordering::Equal
+                } else {
+                    match self.evt_t {
+                        // Prioritize deaths over births.
+                        EventKind::Birth    => { std::cmp::Ordering::Less },
+                        EventKind::Death    => { std::cmp::Ordering::Greater },
+                    }
+                })
     }
 }
 impl PartialOrd for Event {
@@ -337,18 +491,96 @@ impl PartialEq for Event {
     }
 }
 
+/// Helper struct for Lemma 1. "Vertical strips" are going
+/// to be stored into [BinaryHeap]s. Since [BinaryHeap] is
+/// a max-heap, we compare 2 jobs' deaths to order them.
+#[derive(Eq)]
+pub struct VertStripJob {
+    pub job:    Arc<Job>,
+}
+
+impl New for VertStripJob {
+    fn new(job: Arc<Job>) -> Self {
+        Self { job }
+    }
+    fn get_inner_job(self) -> Arc<Job> {
+        self.job
+    }
+}
+
+impl Ord for VertStripJob {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.job
+            .death
+            .cmp(&other.job.death)
+    }
+}
+
+impl PartialOrd for VertStripJob {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for VertStripJob {
+    fn eq(&self, other: &Self) -> bool {
+        self.job == other.job
+    }
+}
+
+pub trait New {
+    fn new(src: Arc<Job>) -> Self;
+    fn get_inner_job(self) -> Arc<Job>;
+}
+
+/// Helper struct for Lemma 1. "Vertical strips" are going
+/// to be stored into [BinaryHeap]s. Since [BinaryHeap] is
+/// a max-heap, we compare 2 jobs in reverse to order them.
+#[derive(Eq)]
+pub struct HorStripJob {
+    pub job:    Arc<Job>,
+}
+
+impl New for HorStripJob {
+    fn new(job: Arc<Job>) -> Self {
+        Self { job }
+    }
+    fn get_inner_job(self) -> Arc<Job> {
+        self.job
+    }
+}
+
+impl Ord for HorStripJob {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.job
+            .cmp(&self.job)
+    }
+}
+
+impl PartialOrd for HorStripJob {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for HorStripJob {
+    fn eq(&self, other: &Self) -> bool {
+        self.job == other.job
+    }
+}
+
 /// Helper function for Lemma 1. Splits all inner
 /// strips into boxes containing `group_size` jobs each.
 /// 
 /// The real size of each box is `box_size`.
 pub fn strip_boxin(
-    verticals:      Vec<JobSet>,
-    horizontals:    Vec<JobSet>,
+    verticals:      Vec<BinaryHeap<VertStripJob>>,
+    horizontals:    Vec<BinaryHeap<HorStripJob>>,
     group_size:     ByteSteps,
     box_size:       ByteSteps,
 ) -> JobSet {
-    let mut res_set = strip_box_core(verticals, group_size, box_size, true);
-    res_set.append(&mut strip_box_core(horizontals, group_size, box_size, false));
+    let mut res_set = strip_box_core(verticals, group_size, box_size);
+    res_set.append(&mut strip_box_core(horizontals, group_size, box_size));
 
     res_set
 }
@@ -357,38 +589,25 @@ pub fn strip_boxin(
 /// of a single strip into boxes containing `group_size` jobs each.
 /// 
 /// The real size of each box is `box_size`.
-fn strip_box_core(
-    strips:         Vec<JobSet>,
+fn strip_box_core<T>(
+    strips:         Vec<BinaryHeap<T>>,
     group_size:     ByteSteps,
     box_size:       ByteSteps,
-    vertical:       bool,
-) -> JobSet {
+) -> JobSet where T: Ord + New {
     let mut res: JobSet = vec![];
-    for strip in strips {
+    let mut buf: JobSet = vec![];
+    for mut strip in strips {
         // We must repeatedly divide each strip in groups
         // of size `group_size` and box them.
-        //
-        // We shall make reuse of `strip_cuttin`.
-        let mut iter = if vertical {
-            strip.into_iter()
-                // Whether the strip is a vertical or horizontal one
-                // designates the sorting before selection.
-                .sorted_unstable_by(|a, b| { b.death.cmp(&a.death) })
-                .peekable()
-        } else {
-            strip.into_iter()
-                .sorted_unstable()
-                .peekable()
-        };
-        while iter.peek().is_some() {
-            let mut to_cut = strip_cuttin(&mut iter, true, group_size);
-            to_cut.sort_unstable();
-            res.push(Arc::new(
-                Job::new_box(
-                    to_cut,
-                     box_size)
-                    )
-                );
+        let mut stripped = 0;
+        while !strip.is_empty() {
+            buf.push(strip.pop().unwrap().get_inner_job());
+            stripped += 1;
+            if stripped == group_size || strip.is_empty() {
+                res.push(Arc::new(Job::new_box(buf, box_size)));
+                buf = vec![];
+                stripped = 0;
+            }
         }
     };
 
@@ -397,31 +616,19 @@ fn strip_box_core(
 
 /// Helper function for Lemma 1. Selects `to_take`
 /// jobs from a given iterator.
-pub fn strip_cuttin(
-    iter:       &mut Peekable<std::vec::IntoIter<Arc<Job>>>,
-    is_sorted:  bool,
+pub fn strip_cuttin<T>(
+    source:     &mut IndexMap<u32, Arc<Job>>,
+    mirror:     &mut IndexMap<u32, Arc<Job>>,
     to_take:    ByteSteps,
-) -> JobSet {
-    if !is_sorted {
-        // Sort remaining jobs by decreasing
-        // death.
-        *iter = iter.sorted_unstable_by(|a, b| {
-            b.death.cmp(&a.death)
-        }).peekable();
-    }
+) -> BinaryHeap<T> where T: Ord + New {
+    let mut res: BinaryHeap<T> = BinaryHeap::new();
     let mut stripped = 0;
-    // This vector collects the outer vertical/horizontal strip jobs.
-    let mut res = vec![];
-
-    // This condition helps us check if we've run
-    // out of jobs.
-    while let Some(j) = iter.next() {
+    while stripped < to_take && !source.is_empty() {
+        let (id, cut_job) = source.pop().unwrap();
+        mirror.shift_remove(&id).unwrap();
+        res.push(New::new(cut_job));
         stripped += 1;
-        res.push(j);
-        // This condition helps check if we're
-        // done with the outer vert. strip.
-        if stripped == to_take { break; }
-    };
-    
+    }
+
     res
 }

@@ -1,6 +1,5 @@
 use crate::{
-    helpe::*,
-    algo::boxing::rogue,
+    algo::{boxing::rogue, placement::do_best_fit}, helpe::*
 };
 
 /// Realizes if:
@@ -16,9 +15,11 @@ use crate::{
 /// lifting: a dummy [Job] is possibly inserted to ensure convergence,
 /// the [InterferenceGraph] is built, max load is computed.
 pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
+    let prelude_cost = Instant::now();
     // For detecting overlap.
     let mut last_evt_was_birth = false;
     let mut overlap_exists = false;
+    let mut same_sizes = false;
     // For calculating max load.
     let (mut running_load, mut max_load): (ByteSteps, ByteSteps) = (0, 0);
     // For detecting size uniformity.
@@ -31,6 +32,10 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
     let (mut h_min, mut h_max) = (ByteSteps::MAX, 0);
     let mut max_death = 0;
     let mut max_id = 0;
+    // For hardness characterization.
+    let mut sizes_sum = 0;
+    let mut lives_sum = 0;
+    let mut l_max = 0;
 
     let mut evts = get_events(&jobs);
     while let Some(e) = evts.pop() {
@@ -42,7 +47,12 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 if e.job.size > h_max {
                     h_max = e.job.size;
                 }
+                if e.job.lifetime() > l_max {
+                    l_max = e.job.lifetime();
+                }
                 if e.job.id > max_id { max_id = e.job.id; }
+                sizes_sum += e.job.size;
+                lives_sum += e.job.lifetime();
                 //---START MAX LOAD UPDATE---
                 running_load += e.job.size;
                 if running_load > max_load {
@@ -69,14 +79,14 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 live.insert(e.job.id, new_entry);
                 //---END IG BUILDING---
 
-                if last_evt_was_birth && !overlap_exists {
+                if last_evt_was_birth && !overlap_exists && !same_sizes {
                     // Overlap detected!
                     overlap_exists = true;
                     if sizes.len() == 1 {
                         let size_probe = sizes.take(&e.job.size).unwrap();
                         if jobs.iter()
                             .all(|j| { j.size == size_probe }) {
-                            return AnalysisResult::SameSizes(jobs);
+                                same_sizes = true;
                         }
                     }
                 }
@@ -98,12 +108,35 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
     };
 
     if !overlap_exists {
-        // TODO: the above loop is TOO heavy an overhead
-        // in case no actual overlap exists. We've currently
-        // decided to do everything in one pass, but maybe
-        // that should change in the future.
+        println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
         AnalysisResult::NoOverlap(jobs)
+    } else if same_sizes {
+        println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
+        AnalysisResult::SameSizes(jobs, ig, registry)
     } else {
+        // Create baseline.
+        let ordered: PlacedJobSet = registry.values()
+            .sorted_by(|a, b| { 
+                b.descr
+                    .size
+                    .cmp(&a.descr.size)
+                    .then(b.descr.lifetime().cmp(&a.descr.lifetime()))
+                })
+            .cloned()
+            .collect();
+        let mut symbolic_offset = 0;
+        for pj in &ordered {
+            pj.offset.set(symbolic_offset);
+            symbolic_offset += 1;
+        }
+        let best_opt = do_best_fit(
+            ordered.into_iter()
+                .collect(),
+                &ig,
+                0, 
+                ByteSteps::MAX,
+                false,
+                0);
         // Interference graph has been built, max load has been computed.
         // BA needs to run, so we must compute epsilon, initialize rogue, etc.
         //
@@ -117,6 +150,27 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
         let mut to_box = jobs.len();
         let mut dummy = None;
         let real_load = max_load;
+
+        // Instance characterization.
+        let h_mean = sizes_sum as f64 / to_box as f64;
+        let life_mean = lives_sum as f64 / to_box as f64;
+        let (height_squared_devs, life_squared_devs) = jobs.iter()
+            .fold((0.0, 0.0), |(ss, ls), j| {
+                (
+                    ss + (j.size as f64 - h_mean).powi(2),
+                    ls + (j.lifetime() as f64 - life_mean).powi(2)
+                )
+
+            });
+        let size_std = (height_squared_devs / (to_box as f64)).sqrt();
+        let life_std = (life_squared_devs / (to_box as f64)).sqrt();
+        let h_hardness = size_std / (h_max as f64 - h_mean);
+        let life_hardness = life_std / (l_max as f64 - life_mean);
+        let double_num_conflicts = ig.values()
+            .fold(0, |s, js| s + js.len());
+        assert!(double_num_conflicts % 2 == 0);
+        let num_two_combos = to_box * (to_box - 1) / 2;
+        let conflict_hardness = (double_num_conflicts / 2) as f64 / num_two_combos as f64;
 
         if small_end >= big_end {
             // Demanding that small < end leads to the condition:
@@ -137,17 +191,17 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 id:                 max_id + 1,
             });
             jobs.push(dummy_job.clone());
-            jobs.sort_unstable();
             to_box += 1;
             max_load += h_max;
             dummy = Some(dummy_job);
         }
-        let mut instance = Instance::new(jobs);
+        let instance = Rc::new(Instance::new(jobs));
         instance.info.set_load(max_load);
         instance.info.set_heights((h_min, h_max));
         let (_, small_end, big_end, _) = instance.ctrl_prelude();
         assert!(small_end < big_end);
         let (epsilon, pre_boxed) = init_rogue(instance.clone(), small_end, big_end);
+        println!("Prelude overhead: {} μs", prelude_cost.elapsed().as_micros());
         AnalysisResult::NeedsBA(BACtrl {
             input:      instance,
             pre_boxed,
@@ -158,6 +212,8 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
             ig,
             reg:        registry,
             mu_lim,
+            best_opt,
+            hardness:   (h_hardness, conflict_hardness, life_hardness)
         })
     }
 }
@@ -166,20 +222,21 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
 /// which results in the smallest min/max height ratio.
 /// 
 /// Also returns the winning value's almost-converged instance.
-fn init_rogue(input: Instance, small: f64, big: f64) -> (f64, Instance) {
+fn init_rogue(input: Rc<Instance>, small: f64, big: f64) -> (f64, Rc<Instance>) {
     let mut e = small;
     let mut min_r = f64::MAX;
     let mut best_e = e;
     let mut tries_left = 3;
-    let mut best: Instance = input.clone();
+    let mut best: Rc<Instance> = input.clone();
+    let mut _test = input.clone();
     loop {
         if tries_left > 0 {
-            let mut test = rogue(input.clone(), e);
-            let (r, _, _, _) = test.get_safety_info(e);
+            _test = rogue(input.clone(), e);
+            let (r, _, _, _) = _test.get_safety_info(e);
             if r < min_r {
                 min_r = r;
                 best_e = e;
-                best = test.clone();
+                best = _test;
                 tries_left = 3;
             } else {
                 tries_left -= 1;
@@ -189,4 +246,22 @@ fn init_rogue(input: Instance, small: f64, big: f64) -> (f64, Instance) {
             break (best_e, best); 
         }
     }
+}
+
+pub fn placement_is_valid(ig_reg: &(InterferenceGraph, PlacedJobRegistry)) -> bool {
+    let (ig, reg) = ig_reg;
+    for (id, jobs) in ig {
+        let this_job = reg.get(id).unwrap();
+        let this_job_start = this_job.offset.get();
+        let this_job_end = this_job.next_avail_offset() - 1;
+        for j in jobs {
+            let that_job_start = j.offset.get();
+            let that_job_end = j.next_avail_offset() - 1;
+            if that_job_start > this_job_end { continue; }
+            else if that_job_start >= this_job_start { return false; }
+            else if that_job_end >= this_job_start { return false; }
+        }
+    }
+
+    true
 }

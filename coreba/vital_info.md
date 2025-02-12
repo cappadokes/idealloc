@@ -22,4 +22,4 @@ What is "too many", though?
 - either as many iterations as fit in a pre-defined time limit (computed by self-measurement)
 - either a result of statistical inference, conducted offline (because measuring all makespans online instead of early-exitting best-fit would harm latency)
 
-3. 
+3. `get_loose_placement` can be optimized.
