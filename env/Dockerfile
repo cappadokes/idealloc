@@ -20,21 +20,14 @@ RUN apt update &&       \
 
 WORKDIR /home
 RUN git clone --branch dsa https://github.com/cappadokes/iree.git
-<<<<<<< HEAD
-
-=======
->>>>>>> 3fe49d22a3853d60651bc819b96b2b47bc2b71c8
 WORKDIR /home/iree
 # Better work in a venv.
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN python3 -m pip install --upgrade pip
 RUN python3 -m pip install -r runtime/bindings/python/iree/runtime/build_requirements.txt
-<<<<<<< HEAD
 
 RUN git submodule update --init
-=======
->>>>>>> 3fe49d22a3853d60651bc819b96b2b47bc2b71c8
 RUN cmake -G Ninja -B ../iree-build/ -S .       \
     -DIREE_TARGET_BACKEND_CUDA=ON               \
     -DIREE_HAL_DRIVER_CUDA=ON                   \
