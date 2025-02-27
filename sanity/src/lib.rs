@@ -1445,7 +1445,23 @@ impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
         // This helps with traversal.
         let dirty_jobs: JobSet = ground_truth
             .into_iter()
-            .map(|j| j.descr.clone())
+            .map(|j| 
+                if use_gens {
+                    j.descr.clone()
+                } else {
+                    Arc::new(
+                        Job {
+                            birth:          j.descr.birth,
+                            death:          j.descr.death + shift,
+                            size:           j.descr.size,
+                            req_size:       j.descr.size,
+                            alignment:      None,
+                            contents:       None,
+                            originals_boxed:0,
+                            id:             j.descr.id,
+                        }
+                    )
+                })
             .collect();
         let mut evts = get_events(&dirty_jobs);
         // Increased by 1 at every first death after a birth.
@@ -1468,7 +1484,7 @@ impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
                         Job {
                             size:               e.job.size,
                             birth:              e.job.birth + num_generations,
-                            death:              e.job.death + num_generations + shift,
+                            death:              e.job.death + num_generations + if use_gens { shift } else { 0 },
                             req_size:           e.job.size,
                             alignment:          None,
                             contents:           None,
