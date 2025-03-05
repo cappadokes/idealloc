@@ -17,6 +17,8 @@ struct Arg {
     #[arg(short, long, value_parser = clap::value_parser!(ByteSteps))]
     start:          ByteSteps,
 
+    /// The only tested case of setting this to false is when reading
+    /// "In" placements derived from "InEx" inputs. Be careful!
     #[arg(short, long, value_parser = clap::value_parser!(bool))]
     generations:    bool,
 }

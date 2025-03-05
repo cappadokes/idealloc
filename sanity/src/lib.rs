@@ -1452,7 +1452,7 @@ impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
                     Arc::new(
                         Job {
                             birth:          j.descr.birth,
-                            death:          j.descr.death + shift,
+                            death:          j.descr.death + 1,
                             size:           j.descr.size,
                             req_size:       j.descr.size,
                             alignment:      None,
@@ -1478,13 +1478,12 @@ impl PlacedJobGen<Rc<PlacedJob>> for IREECSVParser {
                     if !last_evt_was_birth {
                         last_evt_was_birth = true;
                     }
-                    if !use_gens { num_generations = 0; }
                     live.insert(
                         e.job.id,
                         Job {
                             size:               e.job.size,
                             birth:              e.job.birth + num_generations,
-                            death:              e.job.death + num_generations + if use_gens { shift } else { 0 },
+                            death:              e.job.death + num_generations + if use_gens { shift } else { shift - 1 },
                             req_size:           e.job.size,
                             alignment:          None,
                             contents:           None,
