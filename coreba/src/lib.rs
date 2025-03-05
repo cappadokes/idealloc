@@ -2,7 +2,7 @@
 
 mod job;
 mod instance;
-mod analyze;
+pub mod analyze;
 
 pub mod algo;
 pub mod jobset;

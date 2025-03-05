@@ -46,16 +46,45 @@ fn main() {
             panic!("TRC not supported");
         }
     };
+    // Validate solution. Build interference graph!
+    let jobset: JobSet = set.iter()
+        .map(|pj| pj.descr.clone())
+        .collect();
+    let mut evts = get_events(&jobset);
+    let mut ig: InterferenceGraph = HashMap::new();
+    let mut registry: PlacedJobRegistry = HashMap::new();
+    let mut live: PlacedJobRegistry = HashMap::new();
+
+    while let Some(e) = evts.pop() {
+        match e.evt_t {
+            EventKind::Birth    => {
+                let init_vec: PlacedJobSet = live.values()
+                    .cloned()
+                    .collect();
+                let new_entry = Rc::new(PlacedJob::new(e.job.clone()));
+                // First, add a new entry, initialized to the currently live jobs.
+                ig.insert(e.job.id, init_vec);
+                registry.insert(e.job.id, new_entry.clone());
+                for (_, j) in &live {
+                    // Update currently live jobs' vectors with the new entry.
+                    let vec_handle = ig.get_mut(&j.descr.id).unwrap();
+                    vec_handle.push(new_entry.clone());
+                }
+                // Add new entry to currently live jobs.
+                live.insert(e.job.id, new_entry);
+            },
+            EventKind::Death    => {
+                live.remove(&e.job.id);
+            }
+        }        
+    }
+    assert!(coreba::analyze::placement_is_valid(&(ig, registry)));
+
     let makespan = set.iter()
         .map(|pj| pj.next_avail_offset())
         .max()
         .unwrap();
-    let load = get_load(
-        &set
-            .iter()
-            .map(|pj| pj.descr.clone())
-            .collect()
-    );
+    let load = get_load(&jobset);
     println!("Makespan:\t{} bytes\nLOAD:\t\t{} bytes\nFragmentation:\t {:.2}%", 
         makespan, 
         load, 
