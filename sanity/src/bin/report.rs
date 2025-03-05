@@ -52,7 +52,9 @@ fn main() {
         .collect();
     let mut evts = get_events(&jobset);
     let mut ig: InterferenceGraph = HashMap::new();
-    let mut registry: PlacedJobRegistry = HashMap::new();
+    let registry: PlacedJobRegistry = set.iter()
+        .map(|pj| (pj.descr.id, pj.clone()))
+        .collect();
     let mut live: PlacedJobRegistry = HashMap::new();
 
     while let Some(e) = evts.pop() {
@@ -61,10 +63,9 @@ fn main() {
                 let init_vec: PlacedJobSet = live.values()
                     .cloned()
                     .collect();
-                let new_entry = Rc::new(PlacedJob::new(e.job.clone()));
+                let new_entry = registry.get(&e.job.id).unwrap().clone();
                 // First, add a new entry, initialized to the currently live jobs.
                 ig.insert(e.job.id, init_vec);
-                registry.insert(e.job.id, new_entry.clone());
                 for (_, j) in &live {
                     // Update currently live jobs' vectors with the new entry.
                     let vec_handle = ig.get_mut(&j.descr.id).unwrap();
