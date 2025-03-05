@@ -133,8 +133,8 @@ fn main() {
                 if test_makespan < best_makespan {
                     best_makespan = test_makespan;
                 }
-                lives_left -= 1;
                 if lives_left > 0 { 
+                    lives_left -= 1;
                     iters += 1;
                     continue; 
                 }
