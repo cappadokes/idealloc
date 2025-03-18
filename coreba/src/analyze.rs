@@ -14,7 +14,7 @@ use crate::{
 /// If none of (i), (ii) have concluded, the stage is set for BA's heavy
 /// lifting: a dummy [Job] is possibly inserted to ensure convergence,
 /// the [InterferenceGraph] is built, max load is computed.
-pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
+pub fn prelude_analysis(mut jobs: JobSet, start_addr: ByteSteps) -> AnalysisResult {
     let prelude_cost = Instant::now();
     // For detecting overlap.
     let mut last_evt_was_birth = false;
@@ -66,6 +66,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 ig.insert(e.job.id, init_vec);
                 registry.insert(e.job.id, new_entry.clone());
                 for (_, j) in &live {
+                    assert!(j.overlaps_with(&new_entry));
                     // Update currently live jobs' vectors with the new entry.
                     let vec_handle = ig.get_mut(&j.descr.id).unwrap();
                     vec_handle.push(new_entry.clone());
@@ -137,7 +138,7 @@ pub fn prelude_analysis(mut jobs: JobSet) -> AnalysisResult {
                 0, 
                 ByteSteps::MAX,
                 true,
-                0);
+                start_addr);
         println!("Best-fit done.");
         // Interference graph has been built, max load has been computed.
         // BA needs to run, so we must compute epsilon, initialize rogue, etc.
@@ -260,8 +261,8 @@ pub fn placement_is_valid(ig_reg: &(InterferenceGraph, PlacedJobRegistry)) -> bo
             let that_job_start = j.offset.get();
             let that_job_end = j.next_avail_offset() - 1;
             if that_job_start > this_job_end { continue; }
-            else if that_job_start >= this_job_start { return false; }
-            else if that_job_end >= this_job_start { return false; }
+            else if that_job_start >= this_job_start { eprintln!("{:?} conflicts with {:?}!", this_job, j); return false; }
+            else if that_job_end >= this_job_start { eprintln!("{:?} conflicts with {:?}!", this_job, j); return false; }
         }
     }
 

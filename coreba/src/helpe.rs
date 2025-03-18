@@ -132,7 +132,7 @@ pub struct MinimalloCSVParser {
     pub path: PathBuf,
 }
 
-impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
+impl JobGen<&[ByteSteps; 4]> for MinimalloCSVParser {
     fn new(path: PathBuf) -> Self {
         Self {
             path,
@@ -141,8 +141,7 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
   
     fn read_jobs(&self, _: ByteSteps) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let mut res = vec![];
-        let mut data_buf: [ByteSteps; 3] = [0; 3];
-        let mut next_id = 0;
+        let mut data_buf: [ByteSteps; 4] = [0; 4];
 
         let path = self.path
             .as_path();
@@ -155,17 +154,13 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
                     // First line is the header!
                     .skip(1) {
                     for (idx, data) in line?.split(',')
-                        // First column is the id!
-                        .skip(1)
-                        .take(3)
                         .map(|x| {
                             if let Ok(v) = usize::from_str_radix(x, 10) { v }
                             else { panic!("Error while parsing CSV."); }
                         }).enumerate() {
                             data_buf[idx] = data;
                     }
-                    res.push(self.gen_single(&data_buf, next_id));
-                    next_id += 1;
+                    res.push(self.gen_single(&data_buf, data_buf[0] as u32));
                 }
             },
             Err(e)  => { return Err(Box::new(e)); }
@@ -174,12 +169,12 @@ impl JobGen<&[ByteSteps; 3]> for MinimalloCSVParser {
         Ok(res)
     }
 
-    fn gen_single(&self, d: &[ByteSteps; 3], id: u32) -> Job {
+    fn gen_single(&self, d: &[ByteSteps; 4], id: u32) -> Job {
         Job {
-            size:               d[2],
-            birth:              d[0],
-            death:              d[1],
-            req_size:           d[2],
+            size:               d[3],
+            birth:              d[1],
+            death:              d[2],
+            req_size:           d[3],
             alignment:          None,
             contents:           None,
             originals_boxed:    0,
@@ -207,32 +202,62 @@ impl JobGen<Job> for IREECSVParser {
 
     fn read_jobs(&self, shift: ByteSteps) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
         let helper = MinimalloCSVParser::new(self.dirty.clone());
+        // 1 (InEx) --> 0
+        // 2 (In)   --> 1
+        let increment = (shift + 1) % 2;
         let dirty_jobs: JobSet = helper.read_jobs(0)
             .unwrap()
             .into_iter()
-            .map(|j| Arc::new(j))
+            .map(|j| Arc::new(
+                if shift == 1 { j }
+                else {
+                    Job {
+                        size:               j.size,
+                        birth:              j.birth,
+                        death:              j.death + increment,
+                        req_size:           j.size,
+                        alignment:          None,
+                        contents:           None,
+                        originals_boxed:    0,
+                        id:                 j.id,
+
+                    }
+                }
+            ))
             .collect();
         let mut evts = get_events(&dirty_jobs);
         // Increased by 1 at every first death after a birth.
-        let mut num_generations = 0;
-        // Helper var for increasing generations.
-        let mut last_evt_was_birth = true;
+        let mut num_generations: usize = 0;
+        let mut deadline: Option<ByteSteps> = None;
+        let mut last_was_birth = true;
+        let mut upcoming_deaths: BinaryHeap<Event> = BinaryHeap::new();
         // Collects "transformed" jobs.
         let mut res = vec![];
-        // Keeps live jobs, indexed by ID.
-        let mut live: HashMap<u32, Job> = HashMap::new();
+
         while let Some(e) = evts.pop() {
             match e.evt_t {
                 EventKind::Birth    => {
-                    if !last_evt_was_birth {
-                        last_evt_was_birth = true;
+                    if let Some(d) = deadline {
+                        if d + increment == e.time && !last_was_birth {
+                        //if d == e.time && !last_was_birth {
+                            num_generations += 1;
+                        }
                     }
-                    live.insert(
-                        e.job.id,
+                    upcoming_deaths.push(Event {
+                        job:    e.job.clone(),
+                        evt_t:  EventKind::Death,
+                        time:   e.job.death - increment,
+                        //time:   e.job.death
+                    });
+                    if !last_was_birth {
+                        last_was_birth = true;
+                    }
+
+                    res.push(
                         Job {
                             size:               e.job.size,
                             birth:              e.job.birth + num_generations,
-                            death:              e.job.death + num_generations + shift,
+                            death:              e.job.death + num_generations + increment,
                             req_size:           e.job.size,
                             alignment:          None,
                             contents:           None,
@@ -242,11 +267,12 @@ impl JobGen<Job> for IREECSVParser {
                     );
                 },
                 EventKind::Death    => {
-                    if last_evt_was_birth {
-                        num_generations += 1;
-                        last_evt_was_birth = false;
-                    };
-                    res.push(live.remove(&e.job.id).unwrap());
+                    assert!(!upcoming_deaths.is_empty());
+                    assert!(upcoming_deaths.peek().unwrap().time == e.job.death - increment);
+                    deadline = Some(upcoming_deaths.pop().unwrap().time);
+                    if last_was_birth {
+                        last_was_birth = false;
+                    }
                 },
             }
         };
@@ -262,6 +288,7 @@ impl JobGen<Job> for IREECSVParser {
 //---START PLACEMENT PRIMITIVES
 /// A [Job] which has been assigned an offset in
 /// some contiguous address space.
+#[derive(Debug)]
 pub struct PlacedJob {
     pub descr:          Arc<Job>,
     pub offset:         Cell<ByteSteps>,
@@ -471,7 +498,12 @@ impl Ord for Event {
         other.time.cmp(&self.time)
             .then(
                 if self.evt_t == other.evt_t {
-                    std::cmp::Ordering::Equal
+                    match self.evt_t {
+                        EventKind::Birth    => {
+                            self.job.death.cmp(&other.job.death)
+                        },
+                        EventKind::Death    => { std::cmp::Ordering::Equal }
+                    }
                 } else {
                     match self.evt_t {
                         // Prioritize deaths over births.

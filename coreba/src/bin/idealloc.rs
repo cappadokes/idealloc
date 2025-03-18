@@ -35,7 +35,7 @@ fn main() {
     assert!(cli.max_frag >= 1.0, "Maximum fragmentation must be at least 1.0");
     let set = match cli.format {
         InpuType::ExCSV => {
-            read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>(input_path, 1)
+            read_from_path::<MinimalloCSVParser, &[ByteSteps; 4]>(input_path, 1)
         },
         InpuType::InExCSV => {
             read_from_path::<IREECSVParser, Job>(input_path, 1)

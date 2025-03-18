@@ -67,7 +67,7 @@ fn main() {
     assert!(input_path.exists() && input_path.is_file(), "Invalid input path");
     let set = match cli.format {
         InpuType::ExCSV => {
-            read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>(input_path, 1)
+            read_from_path::<MinimalloCSVParser, &[ByteSteps; 4]>(input_path, 1)
         },
         InpuType::InExCSV => {
             read_from_path::<IREECSVParser, Job>(input_path, 1)

@@ -36,31 +36,45 @@ fn main() {
                     read_from_path::<PLCParser, &[u8; 8 * PLC_FIELDS_NUM]>(input_path, 0)
                 },
                 _   => {
-                    read_from_path::<MinimalloCSVParser, &[ByteSteps; 3]>(input_path, 1)
+                    read_from_path::<MinimalloCSVParser, &[ByteSteps; 4]>(input_path, 1)
                 }
             }.unwrap();
-            // The jobs have been now read.
+
             let mut evts = get_events(&input_set);
-            // Increased by 1 at every first death after a birth.
-            let mut num_generations = 0;
-            // Helper var for increasing generations.
-            let mut last_evt_was_birth = true;
-            // Collects "transformed" jobs.
             let mut retired: Vec<Job> = vec![];
-            // Keeps live jobs, indexed by ID.
-            let mut live: HashMap<u32, Job> = HashMap::new();
+            let mut converted_set: Vec<Arc<Job>> = vec![];
+            let mut num_generations: usize = 0;
+            let mut deadline: Option<ByteSteps> = None;
+            let mut last_was_birth = true;
+            let mut upcoming_deaths: BinaryHeap<Event> = BinaryHeap::new();
+            let increment = match cli.input_format {
+                InpuType::InCSV => { 1 },
+                _               => { 0 }
+            };
+
             while let Some(e) = evts.pop() {
                 match e.evt_t {
                     EventKind::Birth    => {
-                        if !last_evt_was_birth {
-                            last_evt_was_birth = true;
+                        if let Some(d) = deadline {
+                            if d + increment == e.time && !last_was_birth {
+                                num_generations += 1;
+                            }
                         }
+                        upcoming_deaths.push(Event {
+                            job:    e.job.clone(),
+                            evt_t:  EventKind::Death,
+                            time:   e.job.death
+                        });
+                        if !last_was_birth {
+                            last_was_birth = true;
+                        }
+
                         let (birth, death): (ByteSteps, ByteSteps) = match cli.input_format {
                             InpuType::ExCSV | InpuType::PLC => {
                                 match cli.output_format {
                                     InpuType::ExCSV | InpuType::PLC => { (e.job.birth, e.job.death) },
-                                    InpuType::InExCSV               => { ((e.job.birth + 1).checked_sub(num_generations).unwrap(), e.job.death.checked_sub(num_generations).unwrap()) },
-                                    InpuType::InCSV                 => { ((e.job.birth + 1).checked_sub(num_generations).unwrap(), (e.job.death - 1).checked_sub(num_generations).unwrap()) },
+                                    InpuType::InExCSV               => { panic!("Ex --> In(Ex) is impossible.") },
+                                    InpuType::InCSV                 => { panic!("Ex --> In(Ex) is impossible.") },
                                     InpuType::TRC                   => { unimplemented!(); }
                                 }
                             },
@@ -82,8 +96,7 @@ fn main() {
                             },
                             InpuType::TRC   => { unimplemented!(); }
                         };
-                        live.insert(
-                            e.job.id,
+                        retired.push(
                             Job {
                                 size:               e.job.size,
                                 birth,
@@ -94,18 +107,32 @@ fn main() {
                                 originals_boxed:    0,
                                 id:                 e.job.id,
                             }
-
+                        );
+                        converted_set.push(
+                            Arc::new(Job {
+                                size:               e.job.size,
+                                birth,
+                                death,
+                                req_size:           e.job.size,
+                                alignment:          None,
+                                contents:           None,
+                                originals_boxed:    0,
+                                id:                 e.job.id,
+                            })
                         );
                     },
                     EventKind::Death    => {
-                        if last_evt_was_birth {
-                            num_generations += 1;
-                            last_evt_was_birth = false;
-                        };
-                        retired.push(live.remove(&e.job.id).unwrap());
+                        assert!(!upcoming_deaths.is_empty());
+                        assert!(upcoming_deaths.peek().unwrap().time == e.time);
+                        deadline = Some(upcoming_deaths.pop().unwrap().time);
+                        if last_was_birth {
+                            last_was_birth = false;
+                        }
                     },
                 }
             };
+
+            let _load = get_load(&converted_set);
 
             // The only remaining thing is for the jobs to be written in the appropriate
             // format.

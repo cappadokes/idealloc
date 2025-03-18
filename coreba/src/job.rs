@@ -1,6 +1,10 @@
 use crate::helpe::*;
 
 impl Job {
+    pub fn overlaps_with(&self, other: &Self) -> bool {
+        !(self.birth >= other.death || other.birth >= self.death)
+    }
+
     pub fn get_id(&self) -> u32 {
         self.id
     }
