@@ -36,3 +36,7 @@ Placements stem from 2 possible sources: traced Linux applications and ML compil
 The second functionality performs measurements w.r.t. fragmentation, load, makespan etc. It's implemented via the `report` binary of `sanity`, and accepts `.plc` or `.csv` files as its input.
 
 ##  Static Memory Planning
+
+`idealloc` was born in the context of research on dynamic memory allocation. Nitty-gritty details aside, an allocator solves an *online* version of an old NP-complete combinatorial optimization problem called Dynamic Storage Allocation (DSA). `idealloc` solves DSA **offline**.
+
+Details on the why and the how may be found on our paper's pre-print, which has not yet been made public.
