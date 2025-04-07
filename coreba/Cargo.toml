@@ -14,7 +14,13 @@ itertools   = { workspace = true }
 thiserror   = { workspace = true }
 rayon       = { workspace = true }
 rand        = { workspace = true }
-# plotters    = { workspace = true }
+indexmap    = { workspace = true }
+clap        = { workspace = true }
 
-[lib]
-path    = "src/v0.3/mod.rs"
+[[bin]]
+name = "idealloc"
+path = "src/bin/idealloc.rs"
+
+[[bin]]
+name = "heuristic"
+path = "src/bin/heuristic.rs"
