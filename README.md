@@ -1,5 +1,7 @@
 #   `idealloc`: Tools for Next-Gen Memory Allocation
 
+> ***DISCLAIMER:*** This repo is the main outcome of my PhD. It is by no means professional work. Parts of it were written when I was still I (metaphorical) child. The most stable and tested thing to use is the `idealloc` binary, described in the `coreba` workspace. Lots of the other stuff is undocumented or unaligned with present documentation. Don't take anything you read here too seriously!
+
 This work reconciles practical and theoretical, i.e., formal, methods for dynamic memory allocation.
 
 ##  Installation
@@ -31,4 +33,6 @@ More specifically, the generated `.trc` file has the following structure:
 
 Placements stem from 2 possible sources: traced Linux applications and ML compiler-generated CSVs. To deal with both uniformly, we transform both in `.plc` format, a custom binary encoding which expresses the bin packing notation on top of which we are building. This is one of the `sanity` crate's two functions, exposed via the `adapt` binary.
 
-The second functionality performs visualization and measurements w.r.t. fragmentation, load, makespan etc. It's implemented via the `report` binary of `sanity`, and accepts `.plc` files as its input.
+The second functionality performs measurements w.r.t. fragmentation, load, makespan etc. It's implemented via the `report` binary of `sanity`, and accepts `.plc` or `.csv` files as its input.
+
+##  Static Memory Planning
