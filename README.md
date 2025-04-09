@@ -1,6 +1,6 @@
 #   `idealloc`: Tools for Next-Gen Memory Allocation
 
-> ***DISCLAIMER:*** This repo is the main outcome of my PhD. It is by no means professional work. Parts of it were written when I was still a (metaphorical) child. The most stable and tested thing to use is the `idealloc` binary, described in the `coreba` workspace. Lots of the other stuff is undocumented or unaligned with present documentation. Don't take anything you read here too seriously!
+> ***DISCLAIMER:*** This repo is the main outcome of my PhD. It is by no means professional work. Parts of it were written when I was still a (metaphorical) child. The most stable and tested thing to use is the `idealloc` binary, described in the `coreba` crate (you can check a not-yet-peer-reviewed version of our technical report [here](https://arxiv.org/abs/2504.04874)). Lots of the other stuff is undocumented or unaligned with present documentation. Don't take anything you read here too seriously!
 
 This work reconciles practical and theoretical, i.e., formal, methods for dynamic memory allocation.
 
@@ -39,4 +39,4 @@ The second functionality performs measurements w.r.t. fragmentation, load, makes
 
 `idealloc` was born in the context of research on dynamic memory allocation. Nitty-gritty details aside, an allocator solves an *online* version of an old NP-complete combinatorial optimization problem called Dynamic Storage Allocation (DSA). `idealloc` solves DSA **offline**.
 
-Details on the why and the how may be found on our paper's pre-print, which has not yet been made public.
+Details on the why and the how may be found on [our paper's pre-print](https://arxiv.org/abs/2504.04874).
