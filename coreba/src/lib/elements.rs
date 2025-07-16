@@ -852,12 +852,16 @@ impl World {
             ) {
                 contents = backup.clone();
                 contents.restore_heights();
+                let boxing_time = Instant::now();
                 let ready = loop {
                     // 2 possible outcomes exist:
                     // (i) BA has boxed ALL jobs
                     // (ii)BA hasn't done (i)
                     match contents.t_16(e.val, &mut self.magic) {
                         Ok(mut all_boxed) => {
+                            if done > 0 {
+                              println!("Boxing time: {} μs", boxing_time.elapsed().as_micros());
+                            }
                             self.next_id = all_boxed.next_id;
                             all_boxed.check_overlap(false);
                             break all_boxed;
