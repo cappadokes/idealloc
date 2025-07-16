@@ -472,7 +472,7 @@ pub fn lobby(r: ReqType) -> *mut void {
         if let ReqType::Free(real_add) = r {
             // In the case of de-allocation, update objects book.
             if real_add != 0 {
-                WORLD.objects.remove(&real_add).expect("Tried to free non-existent object.");
+                WORLD.objects.swap_remove(&real_add).expect("Tried to free non-existent object.");
             }
         } else {
             print_running_rss();
@@ -489,7 +489,7 @@ pub fn lobby(r: ReqType) -> *mut void {
 
             if let ReqType::ReAlloc(old_real_add, _) = r {
                 if old_real_add != 0 {
-                    let (_, bytes_to_copy) = WORLD.objects.remove(&old_real_add).expect("Tried to free non-existent object!");
+                    let (_, bytes_to_copy) = WORLD.objects.swap_remove(&old_real_add).expect("Tried to free non-existent object!");
                     let new_real_add = res;
                     let old_real_add = old_real_add as *mut c_void;
                     if old_real_add != new_real_add {
